@@ -25,8 +25,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           mode="contained"
           style={styles.button}
           onPress={() => {
-            // Naviguer vers l'écran de nouvelle partie (à implémenter)
-            console.log("Nouvelle partie");
+            navigation.navigate("GameConfig");
           }}
         >
           Nouvelle Partie
