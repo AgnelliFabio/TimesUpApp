@@ -4,6 +4,7 @@ import { Button, Title, Text, Checkbox, RadioButton, Card, Divider, Subheading, 
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import Database, { Category, Team, Player } from '../database/Database';
+import { GameConfig } from '../models/GameModels';
 
 type GameConfigScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'GameConfig'>;
 
@@ -110,35 +111,17 @@ const GameConfigScreen: React.FC<Props> = ({ navigation }) => {
         .filter(c => c.checked)
         .map(c => c.id!);
       
-      const selectedTeamIds = teams
-        .filter(t => t.checked)
-        .map(t => t.id!);
-      
-      const totalPhrases = phrasesPerTeam * selectedTeamIds.length;
-      
-      // Récupérer des phrases aléatoires pour la partie
-      const gameData = {
+      // Créer la configuration du jeu pour GameScreen
+      const gameConfig: GameConfig = {
+        teams: teams.filter(t => t.checked),
+        selectedCategoryIds,
         roundDuration,
         phrasesPerTeam,
-        selectedCategoryIds,
-        selectedTeamIds,
-        teams: teams.filter(t => t.checked),
       };
       
-      // À ce stade, nous passerions les données à l'écran de jeu
-      // Nous allons implémenter cet écran dans la prochaine étape
+      // Naviguer vers l'écran de jeu avec la configuration
+      navigation.navigate('Game', { gameConfig });
       
-      Alert.alert(
-        'Configuration terminée',
-        `Partie configurée avec ${selectedTeamIds.length} équipes, ${selectedCategoryIds.length} catégories, ${totalPhrases} phrases au total, et ${roundDuration} secondes par tour.`,
-        [
-          {
-            text: 'OK',
-            // Nous commenterons cette navigation jusqu'à ce que l'écran de jeu soit implémenté
-            // onPress: () => navigation.navigate('Game', { gameData })
-          }
-        ]
-      );
     } catch (error) {
       console.error('Erreur lors de la configuration de la partie', error);
       Alert.alert('Erreur', 'Impossible de configurer la partie');
