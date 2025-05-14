@@ -1,115 +1,165 @@
-import React from "react";
-import { View, StyleSheet, Alert } from "react-native";
-import { Button, Title, Text } from "react-native-paper";
-import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { RootStackParamList } from "../navigation/AppNavigator";
-import Database from "../database/Database";
+import React from 'react';
+import { View, StyleSheet, ImageBackground, Image, Dimensions } from 'react-native';
+import { Button, Title, Text } from 'react-native-paper';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../navigation/AppNavigator';
+import { colors, typography, spacing, borderRadius, shadows } from '../constants/theme';
+import { images, useAssets } from '../hooks/useAssets';
+import Database from '../database/Database';
 
-type HomeScreenNavigationProp = NativeStackNavigationProp<
-  RootStackParamList,
-  "Home"
->;
+const { width, height } = Dimensions.get('window');
+
+type HomeScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Home'>;
 
 type Props = {
   navigation: HomeScreenNavigationProp;
 };
 
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
-  return (
-    <View style={styles.container}>
-      <Title style={styles.title}>Times Up!</Title>
-      <Text style={styles.subtitle}>Le jeu de devinettes par équipes</Text>
-
-      <View style={styles.buttonContainer}>
-        <Button
-          mode="contained"
-          style={styles.button}
-          onPress={() => {
-            navigation.navigate("GameConfig");
-          }}
-        >
-          Nouvelle Partie
-        </Button>
-
-        <Button
-          mode="outlined"
-          style={styles.button}
-          onPress={() => {
-            navigation.navigate("Players");
-          }}
-        >
-          Gérer les Joueurs
-        </Button>
-
-        <Button
-          mode="outlined"
-          style={styles.button}
-          onPress={() => {
-            navigation.navigate("Teams");
-          }}
-        >
-          Gérer les Équipes
-        </Button>
-        <Button
-          mode="outlined"
-          style={[styles.button, { marginTop: 20, backgroundColor: "#ffcccc" }]}
-          onPress={async () => {
-            try {
-              await Database.resetDatabase();
-              Alert.alert(
-                "Succès",
-                "Base de données réinitialisée avec succès. Redémarrez l'application."
-              );
-            } catch (error) {
-              console.error("Erreur lors de la réinitialisation", error);
-              Alert.alert(
-                "Erreur",
-                "Impossible de réinitialiser la base de données"
-              );
-            }
-          }}
-        >
-          Réinitialiser la base de données
-        </Button>
-        <Button
-          mode="outlined"
-          style={styles.button}
-          onPress={() => {
-            // Naviguer vers l'écran des paramètres (à implémenter)
-            console.log("Paramètres");
-          }}
-        >
-          Paramètres
-        </Button>
+  const assetsLoaded = useAssets();
+  
+  if (!assetsLoaded) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={styles.loadingText}>Chargement...</Text>
       </View>
-    </View>
+    );
+  }
+  
+  return (
+    <ImageBackground 
+      source={images.gradientBackground} 
+      style={styles.container}
+      resizeMode="cover"
+    >
+      <View style={styles.content}>
+        {/* Logo */}
+        <View style={styles.logoContainer}>
+          <Image 
+            source={images.logo} 
+            style={styles.logo}
+            resizeMode="contain"
+          />
+        </View>
+        
+        {/* Boutons principaux */}
+        <View style={styles.buttonContainer}>
+          <Button 
+            mode="contained" 
+            style={[styles.button, styles.primaryButton]}
+            labelStyle={styles.buttonLabel}
+            onPress={() => {
+              navigation.navigate('GameConfig');
+            }}
+          >
+            NOUVELLE PARTIE
+          </Button>
+          
+          <Button 
+            mode="contained" 
+            style={[styles.button, styles.secondaryButton]}
+            labelStyle={styles.buttonLabel}
+            onPress={() => {
+              navigation.navigate('Players');
+            }}
+          >
+            GESTION DES JOUEURS
+          </Button>
+        </View>
+        
+        {/* Bouton temporaire de réinitialisation (à supprimer plus tard) */}
+        <View style={styles.tempButtonContainer}>
+          <Button 
+            mode="outlined" 
+            style={styles.tempButton}
+            labelStyle={styles.tempButtonLabel}
+            onPress={async () => {
+              try {
+                await Database.resetDatabase();
+                alert('Base de données réinitialisée avec succès');
+              } catch (error) {
+                console.error('Erreur lors de la réinitialisation', error);
+                alert('Erreur lors de la réinitialisation de la base de données');
+              }
+            }}
+          >
+            DEBUG: Reset BDD
+          </Button>
+        </View>
+      </View>
+    </ImageBackground>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 16,
-    backgroundColor: "#f7f7f7",
+    backgroundColor: colors.background.primary,
   },
-  title: {
-    fontSize: 32,
-    marginBottom: 8,
-    color: "#3f51b5",
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.background.primary,
   },
-  subtitle: {
-    fontSize: 16,
-    marginBottom: 48,
-    color: "#757575",
+  loadingText: {
+    color: colors.white,
+    fontFamily: typography.fontFamily.medium,
+    fontSize: typography.fontSize.large,
+  },
+  content: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  logoContainer: {
+    alignItems: 'center',
+    marginBottom: spacing.xxl * 2,
+  },
+  logo: {
+    width: width * 0.7, // 70% de la largeur d'écran
+    height: height * 0.25, // 25% de la hauteur d'écran
+    maxWidth: 300,
+    maxHeight: 150,
   },
   buttonContainer: {
-    width: "100%",
+    width: '100%',
     maxWidth: 300,
+    marginBottom: spacing.xl,
   },
   button: {
-    marginVertical: 8,
+    marginVertical: spacing.sm,
+    borderRadius: borderRadius.medium,
+    paddingVertical: spacing.sm,
+    ...shadows.medium,
+  },
+  primaryButton: {
+    backgroundColor: colors.teams.cyan.main,
+  },
+  secondaryButton: {
+    backgroundColor: colors.teams.vert.main,
+  },
+  buttonLabel: {
+    fontFamily: typography.fontFamily.bold,
+    fontSize: typography.fontSize.large,
+    color: colors.white,
+    letterSpacing: 1,
+  },
+  tempButtonContainer: {
+    position: 'absolute',
+    bottom: spacing.lg,
+    width: '100%',
+    alignItems: 'center',
+  },
+  tempButton: {
+    borderColor: colors.accent,
+    borderWidth: 1,
+  },
+  tempButtonLabel: {
+    fontFamily: typography.fontFamily.medium,
+    fontSize: typography.fontSize.small,
+    color: colors.accent,
   },
 });
 
