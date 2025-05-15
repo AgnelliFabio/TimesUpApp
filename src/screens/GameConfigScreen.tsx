@@ -1,10 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, Alert, ScrollView, ActivityIndicator } from 'react-native';
-import { Button, Title, Text, Checkbox, RadioButton, Card, Divider, Subheading, List } from 'react-native-paper';
+import { View, StyleSheet, ScrollView, ImageBackground, Dimensions, TouchableOpacity } from 'react-native';
+import { Button, Title, Text, IconButton } from 'react-native-paper';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import Database, { Category, Team, Player } from '../database/Database';
 import { GameConfig } from '../models/GameModels';
+import { colors, typography, spacing, borderRadius, shadows } from '../constants/theme';
+import { images } from '../hooks/useAssets';
+import CustomSlider from '../components/CustomSlider';
+
+const { width } = Dimensions.get('window');
 
 type GameConfigScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'GameConfig'>;
 
@@ -12,47 +17,38 @@ type Props = {
   navigation: GameConfigScreenNavigationProp;
 };
 
-// Interface pour les équipes avec leurs joueurs
 interface TeamWithPlayers extends Team {
   players: Player[];
-  checked: boolean;
 }
-
-// Durations for the game rounds (in seconds)
-const ROUND_DURATIONS = [30, 45, 60, 90, 120];
-// Number of phrases per team
-const PHRASES_PER_TEAM_OPTIONS = [10, 15, 20, 25, 30];
 
 const GameConfigScreen: React.FC<Props> = ({ navigation }) => {
   const [categories, setCategories] = useState<(Category & { checked: boolean })[]>([]);
   const [teams, setTeams] = useState<TeamWithPlayers[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [roundDuration, setRoundDuration] = useState(ROUND_DURATIONS[1]); // Default to 45 seconds
-  const [phrasesPerTeam, setPhrasesPerTeam] = useState(PHRASES_PER_TEAM_OPTIONS[1]); // Default to 15 phrases
+  const [roundDuration, setRoundDuration] = useState(45);
+  const [numberOfWords, setNumberOfWords] = useState(20);
 
-  // Chargement des catégories et des équipes
+  // Chargement des données
   useEffect(() => {
     const loadData = async () => {
       try {
         setIsLoading(true);
         
-        // Charger les catégories
         const loadedCategories = await Database.getCategories();
         setCategories(loadedCategories.map(category => ({ ...category, checked: true })));
         
-        // Charger les équipes avec leurs joueurs
         const loadedTeams = await Database.getTeams();
         const teamsWithPlayers = await Promise.all(
           loadedTeams.map(async (team) => {
             const players = await Database.getTeamPlayers(team.id!);
-            return { ...team, players, checked: true };
+            return { ...team, players };
           })
         );
         
-        setTeams(teamsWithPlayers);
+        // Filtrer pour ne montrer que les équipes complètes (2 joueurs)
+        setTeams(teamsWithPlayers.filter(team => team.players.length === 2));
       } catch (error) {
         console.error('Erreur lors du chargement des données', error);
-        Alert.alert('Erreur', 'Impossible de charger les données de configuration');
       } finally {
         setIsLoading(false);
       }
@@ -61,6 +57,23 @@ const GameConfigScreen: React.FC<Props> = ({ navigation }) => {
     loadData();
   }, []);
 
+  // Fonction pour obtenir le nom de la couleur
+  const getTeamName = (color: string): string => {
+    const colorMap: { [key: string]: string } = {
+      '#03B0AE': 'CYAN',
+      '#4D2BAD': 'VIOLET',
+      '#BE2045': 'POURPRE',
+      '#ABD926': 'VERTE'
+    };
+    return colorMap[color] || 'ÉQUIPE';
+  };
+
+  // Fonction pour obtenir l'icône de l'équipe
+  const getTeamIcon = () => {
+    // Placeholder pour l'icône - sera ajouté quand les images seront testées
+    return null;
+  };
+
   // Basculer la sélection d'une catégorie
   const toggleCategory = (id: number) => {
     setCategories(categories.map(category => 
@@ -68,295 +81,305 @@ const GameConfigScreen: React.FC<Props> = ({ navigation }) => {
     ));
   };
 
-  // Basculer la sélection d'une équipe
-  const toggleTeam = (id: number) => {
-    setTeams(teams.map(team => 
-      team.id === id ? { ...team, checked: !team.checked } : team
-    ));
+  // Activer/désactiver toutes les catégories
+  const toggleAllCategories = () => {
+    const allChecked = categories.every(cat => cat.checked);
+    setCategories(categories.map(category => ({ ...category, checked: !allChecked })));
   };
 
-  // Vérifier si la configuration est valide pour démarrer une partie
-  const isConfigValid = () => {
+  // Validation et lancement du jeu
+  const startGame = async () => {
     const selectedCategories = categories.filter(c => c.checked);
-    const selectedTeams = teams.filter(t => t.checked);
     
     if (selectedCategories.length === 0) {
-      Alert.alert('Configuration invalide', 'Vous devez sélectionner au moins une catégorie.');
-      return false;
-    }
-    
-    if (selectedTeams.length < 2) {
-      Alert.alert('Configuration invalide', 'Vous devez sélectionner au moins deux équipes.');
-      return false;
-    }
-    
-    // Vérifier que toutes les équipes sélectionnées ont au moins un joueur
-    const teamsWithoutPlayers = selectedTeams.filter(team => team.players.length === 0);
-    if (teamsWithoutPlayers.length > 0) {
-      Alert.alert('Configuration invalide', 'Toutes les équipes sélectionnées doivent avoir au moins un joueur.');
-      return false;
-    }
-    
-    return true;
-  };
-
-  // Démarrer une nouvelle partie
-  const startGame = async () => {
-    if (!isConfigValid()) {
+      alert('Vous devez sélectionner au moins une catégorie.');
       return;
     }
     
+    if (teams.length < 2) {
+      alert('Vous devez avoir au moins deux équipes complètes.');
+      return;
+    }
+
     try {
-      const selectedCategoryIds = categories
-        .filter(c => c.checked)
-        .map(c => c.id!);
-      
-      // Créer la configuration du jeu pour GameScreen
       const gameConfig: GameConfig = {
-        teams: teams.filter(t => t.checked),
-        selectedCategoryIds,
+        teams: teams,
+        selectedCategoryIds: selectedCategories.map(c => c.id!),
         roundDuration,
-        phrasesPerTeam,
+        phrasesPerTeam: numberOfWords,
       };
       
-      // Naviguer vers l'écran de jeu avec la configuration
       navigation.navigate('Game', { gameConfig });
-      
     } catch (error) {
       console.error('Erreur lors de la configuration de la partie', error);
-      Alert.alert('Erreur', 'Impossible de configurer la partie');
+      alert('Impossible de configurer la partie');
     }
-  };
-
-  // Obtenir le nom de la couleur à partir de sa valeur
-  const getColorName = (colorValue: string): string => {
-    const colorMap: { [key: string]: string } = {
-      '#e53935': 'Rouge',
-      '#1e88e5': 'Bleu',
-      '#43a047': 'Vert',
-      '#fdd835': 'Jaune'
-    };
-    
-    return colorMap[colorValue] || 'Inconnu';
-  };
-
-  // Rendu de l'indicateur de couleur
-  const renderColorIndicator = (color: string) => {
-    return (
-      <View 
-        style={[
-          styles.colorIndicator, 
-          { backgroundColor: color }
-        ]} 
-      />
-    );
   };
 
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#3f51b5" />
-        <Text style={styles.loadingText}>Chargement de la configuration...</Text>
+        <Text style={styles.loadingText}>Chargement...</Text>
       </View>
     );
   }
 
   return (
-    <ScrollView style={styles.container}>
-      <Title style={styles.title}>Configuration de la partie</Title>
-      
-      {/* Section des équipes */}
-      <Card style={styles.card}>
-        <Card.Title title="Équipes" />
-        <Card.Content>
-          <Text style={styles.subtitle}>
-            Sélectionnez au moins deux équipes qui vont participer
-          </Text>
-          {teams.length === 0 ? (
-            <Text style={styles.emptyText}>
-              Aucune équipe disponible. Créez d'abord des équipes dans la section "Gestion des Équipes".
-            </Text>
-          ) : (
-            teams.map((team) => (
-              <List.Item
-                key={team.id}
-                title={`Équipe ${getColorName(team.color)}`}
-                description={
-                  team.players.length > 0
-                    ? `Joueurs: ${team.players.map(p => p.name).join(', ')}`
-                    : "Aucun joueur dans cette équipe"
+    <ImageBackground source={images.gradientBackground} style={styles.container}>
+      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+        {/* Header avec logo */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()}>
+            <IconButton 
+              icon="arrow-left" 
+              size={32}
+              iconColor={colors.white}
+            />
+          </TouchableOpacity>
+          
+          <View style={styles.logoContainer}>
+            <Text style={styles.logoText}>Time's Out</Text>
+          </View>
+        </View>
+
+        {/* Section Équipes */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>ÉQUIPES</Text>
+          
+          <View style={styles.teamsGrid}>
+            {teams.map((team) => (
+              <View key={team.id} style={[
+                styles.teamCard,
+                {
+                  backgroundColor: team.color,
+                  borderColor: colors.white,
                 }
-                left={() => renderColorIndicator(team.color)}
-                right={() => (
-                  <Checkbox
-                    status={team.checked ? 'checked' : 'unchecked'}
-                    onPress={() => toggleTeam(team.id!)}
-                    disabled={team.players.length === 0}
-                  />
-                )}
-                disabled={team.players.length === 0}
-                style={[
-                  styles.listItem,
-                  team.players.length === 0 && styles.disabledItem
-                ]}
-              />
-            ))
-          )}
-        </Card.Content>
-      </Card>
-      
-      {/* Section des catégories */}
-      <Card style={styles.card}>
-        <Card.Title title="Catégories" />
-        <Card.Content>
-          <Text style={styles.subtitle}>
-            Sélectionnez les catégories de mots à utiliser
-          </Text>
-          {categories.length === 0 ? (
-            <Text style={styles.emptyText}>
-              Aucune catégorie disponible.
-            </Text>
-          ) : (
-            categories.map((category) => (
-              <List.Item
+              ]}>
+                <View style={styles.teamHeader}>
+                  <Text style={styles.teamName}>{getTeamName(team.color)}</Text>
+                </View>
+                {team.players.map((player, index) => (
+                  <Text key={player.id} style={styles.playerName}>
+                    {player.name}
+                  </Text>
+                ))}
+              </View>
+            ))}
+          </View>
+
+          <TouchableOpacity 
+            style={styles.manageButton}
+            onPress={() => navigation.navigate('Players')}
+          >
+            <Text style={styles.manageButtonText}>GÉRER LES ÉQUIPES</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Section Catégories */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>CATÉGORIES</Text>
+          
+          <View style={styles.categoriesGrid}>
+            {categories.map((category) => (
+              <TouchableOpacity
                 key={category.id}
-                title={category.name}
-                right={() => (
-                  <Checkbox
-                    status={category.checked ? 'checked' : 'unchecked'}
-                    onPress={() => toggleCategory(category.id!)}
-                  />
-                )}
-                style={styles.listItem}
-              />
-            ))
-          )}
-        </Card.Content>
-      </Card>
-      
-      {/* Section de la durée des tours */}
-      <Card style={styles.card}>
-        <Card.Title title="Durée des tours" />
-        <Card.Content>
-          <Text style={styles.subtitle}>
-            Sélectionnez la durée de chaque tour en secondes
-          </Text>
-          <RadioButton.Group onValueChange={(value) => setRoundDuration(Number(value))} value={roundDuration.toString()}>
-            <View style={styles.optionsContainer}>
-              {ROUND_DURATIONS.map((duration) => (
-                <View key={duration} style={styles.optionItem}>
-                  <RadioButton value={duration.toString()} />
-                  <Text>{duration} secondes</Text>
-                </View>
-              ))}
-            </View>
-          </RadioButton.Group>
-        </Card.Content>
-      </Card>
-      
-      {/* Section du nombre de phrases */}
-      <Card style={styles.card}>
-        <Card.Title title="Nombre de phrases" />
-        <Card.Content>
-          <Text style={styles.subtitle}>
-            Sélectionnez le nombre de phrases par équipe
-          </Text>
-          <RadioButton.Group onValueChange={(value) => setPhrasesPerTeam(Number(value))} value={phrasesPerTeam.toString()}>
-            <View style={styles.optionsContainer}>
-              {PHRASES_PER_TEAM_OPTIONS.map((count) => (
-                <View key={count} style={styles.optionItem}>
-                  <RadioButton value={count.toString()} />
-                  <Text>{count} phrases</Text>
-                </View>
-              ))}
-            </View>
-          </RadioButton.Group>
-        </Card.Content>
-      </Card>
-      
-      {/* Bouton pour démarrer la partie */}
-      <Button 
-        mode="contained" 
-        style={styles.startButton}
-        onPress={startGame}
-        disabled={teams.filter(t => t.checked).length < 2 || categories.filter(c => c.checked).length === 0}
-      >
-        Démarrer la partie
-      </Button>
-      
-    </ScrollView>
+                style={[
+                  styles.categoryButton,
+                  {
+                    backgroundColor: category.checked ? colors.accent : colors.background.secondary,
+                    borderColor: colors.white,
+                  }
+                ]}
+                onPress={() => toggleCategory(category.id!)}
+              >
+                <Text style={[
+                  styles.categoryText,
+                  { color: category.checked ? colors.black : colors.white }
+                ]}>
+                  {category.name}
+                </Text>
+                <Text style={[
+                  styles.categoryIcon,
+                  { color: category.checked ? colors.black : colors.white }
+                ]}>
+                  {category.checked ? '✕' : '+'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <TouchableOpacity 
+            style={styles.manageButton}
+            onPress={toggleAllCategories}
+          >
+            <Text style={styles.manageButtonText}>TOUT ACTIVER</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Section Paramètres */}
+        <View style={styles.section}>
+          <CustomSlider
+            value={roundDuration}
+            onValueChange={setRoundDuration}
+            minimumValue={30}
+            maximumValue={90}
+            step={10}
+            label="TEMPS DU ROUND"
+            unit="S"
+          />
+
+          <CustomSlider
+            value={numberOfWords}
+            onValueChange={setNumberOfWords}
+            minimumValue={15}
+            maximumValue={35}
+            step={5}
+            label="NOMBRE DE MOTS"
+            unit=""
+          />
+        </View>
+
+        {/* Bouton de lancement */}
+        <View style={styles.launchContainer}>
+          <Button
+            mode="contained"
+            style={styles.launchButton}
+            labelStyle={styles.launchButtonText}
+            onPress={startGame}
+          >
+            LANCER LA PARTIE
+          </Button>
+        </View>
+      </ScrollView>
+    </ImageBackground>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
-    backgroundColor: '#f7f7f7',
+    backgroundColor: colors.background.primary,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f7f7f7',
+    backgroundColor: colors.background.primary,
   },
   loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#666',
+    color: colors.white,
+    fontSize: typography.fontSize.large,
   },
-  title: {
-    fontSize: 24,
-    marginBottom: 16,
-    color: '#3f51b5',
+  scrollView: {
+    flex: 1,
+    paddingHorizontal: spacing.lg,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.lg,
+  },
+  logoContainer: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  logoText: {
+    fontSize: typography.fontSize.xxxlarge,
+    fontFamily: typography.fontFamily.bold,
+    color: colors.accent,
+  },
+  section: {
+    marginBottom: spacing.xl,
+  },
+  sectionTitle: {
+    fontSize: typography.fontSize.xxlarge,
+    fontFamily: typography.fontFamily.bold,
+    color: colors.white,
+    marginBottom: spacing.md,
     textAlign: 'center',
   },
-  subtitle: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 12,
-  },
-  card: {
-    marginBottom: 16,
-    elevation: 2,
-  },
-  listItem: {
-    paddingVertical: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-  },
-  disabledItem: {
-    opacity: 0.5,
-  },
-  emptyText: {
-    textAlign: 'center',
-    marginVertical: 20,
-    fontStyle: 'italic',
-    color: '#757575',
-  },
-  colorIndicator: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    marginLeft: 10,
-    marginRight: 10,
-  },
-  optionsContainer: {
+  teamsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
+    marginBottom: spacing.md,
   },
-  optionItem: {
+  teamCard: {
+    width: (width - (spacing.lg * 2) - spacing.sm) / 2,
+    padding: spacing.md,
+    borderRadius: borderRadius.medium,
+    borderWidth: 3,
+    marginBottom: spacing.sm,
+    minHeight: 120,
+  },
+  teamHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    width: '45%',
-    marginBottom: 8,
+    marginBottom: spacing.xs,
   },
-  startButton: {
-    marginTop: 20,
-    marginBottom: 40,
-    backgroundColor: '#3f51b5',
-    paddingVertical: 8,
+  teamName: {
+    fontSize: typography.fontSize.large,
+    fontFamily: typography.fontFamily.bold,
+    color: colors.white,
+  },
+  playerName: {
+    fontSize: typography.fontSize.medium,
+    fontFamily: typography.fontFamily.medium,
+    color: colors.white,
+    marginBottom: spacing.xs,
+  },
+  categoriesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  categoryButton: {
+    width: (width - (spacing.lg * 2) - spacing.sm) / 2,
+    padding: spacing.md,
+    borderRadius: borderRadius.medium,
+    borderWidth: 3,
+    marginBottom: spacing.sm,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  categoryText: {
+    fontSize: typography.fontSize.medium,
+    fontFamily: typography.fontFamily.bold,
+    marginRight: spacing.xs,
+  },
+  categoryIcon: {
+    fontSize: typography.fontSize.large,
+    fontFamily: typography.fontFamily.bold,
+  },
+  manageButton: {
+    alignSelf: 'center',
+    paddingVertical: spacing.xs,
+  },
+  manageButtonText: {
+    fontSize: typography.fontSize.medium,
+    fontFamily: typography.fontFamily.bold,
+    color: colors.white,
+    textDecorationLine: 'underline',
+  },
+  launchContainer: {
+    alignItems: 'center',
+    paddingVertical: spacing.xl,
+  },
+  launchButton: {
+    backgroundColor: colors.accent,
+    borderRadius: borderRadius.medium,
+    paddingHorizontal: spacing.xxl,
+    paddingVertical: spacing.md,
+    borderWidth: 3,
+    borderColor: colors.white,
+  },
+  launchButtonText: {
+    fontSize: typography.fontSize.large,
+    fontFamily: typography.fontFamily.bold,
+    color: colors.black,
   },
 });
 

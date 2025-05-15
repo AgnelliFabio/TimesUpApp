@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, ImageBackground, Image, Dimensions } from 'react-native';
+import { View, StyleSheet, ImageBackground, Image, Dimensions, Alert } from 'react-native';
 import { Button, Title, Text } from 'react-native-paper';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
@@ -67,7 +67,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           </Button>
         </View>
         
-        {/* Bouton temporaire de réinitialisation (à supprimer plus tard) */}
+        {/* Bouton temporaire de réinitialisation */}
         <View style={styles.tempButtonContainer}>
           <Button 
             mode="outlined" 
@@ -76,10 +76,10 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
             onPress={async () => {
               try {
                 await Database.resetDatabase();
-                alert('Base de données réinitialisée avec succès');
+                Alert.alert('Succès', 'Base de données réinitialisée avec succès');
               } catch (error) {
                 console.error('Erreur lors de la réinitialisation', error);
-                alert('Erreur lors de la réinitialisation de la base de données');
+                Alert.alert('Erreur', 'Erreur lors de la réinitialisation de la base de données');
               }
             }}
           >
@@ -104,7 +104,6 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     color: colors.white,
-    fontFamily: typography.fontFamily.medium,
     fontSize: typography.fontSize.large,
   },
   content: {
@@ -118,10 +117,10 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xxl * 2,
   },
   logo: {
-    width: width * 0.7, // 70% de la largeur d'écran
-    height: height * 0.25, // 25% de la hauteur d'écran
+    width: width * 0.7,
+    height: height * 0.15,
     maxWidth: 300,
-    maxHeight: 150,
+    maxHeight: 100,
   },
   buttonContainer: {
     width: '100%',
@@ -136,15 +135,19 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     backgroundColor: colors.teams.cyan.main,
+    borderWidth: 3,
+    borderColor: colors.white,
   },
   secondaryButton: {
     backgroundColor: colors.teams.vert.main,
+    borderWidth: 3,
+    borderColor: colors.white,
   },
   buttonLabel: {
-    fontFamily: typography.fontFamily.bold,
     fontSize: typography.fontSize.large,
     color: colors.white,
     letterSpacing: 1,
+    fontWeight: 'bold',
   },
   tempButtonContainer: {
     position: 'absolute',
@@ -157,7 +160,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   tempButtonLabel: {
-    fontFamily: typography.fontFamily.medium,
     fontSize: typography.fontSize.small,
     color: colors.accent,
   },
