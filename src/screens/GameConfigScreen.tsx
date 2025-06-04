@@ -2,58 +2,71 @@ import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, ImageBackground, Dimensions, TouchableOpacity } from 'react-native';
 import { Button, Title, Text, IconButton } from 'react-native-paper';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import Database, { Category, Team, Player } from '../database/Database';
 import { GameConfig } from '../models/GameModels';
 import { colors, typography, spacing, borderRadius, shadows } from '../constants/theme';
 import { images } from '../hooks/useAssets';
 import CustomSlider from '../components/CustomSlider';
+import { useFocusEffect } from '@react-navigation/native';
+import { useCallback } from 'react';
 
 const { width } = Dimensions.get('window');
 
 type GameConfigScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'GameConfig'>;
+type GameConfigScreenRouteProp = RouteProp<RootStackParamList, 'GameConfig'>;
 
 type Props = {
   navigation: GameConfigScreenNavigationProp;
+  route: GameConfigScreenRouteProp;
 };
 
 interface TeamWithPlayers extends Team {
   players: Player[];
 }
 
-const GameConfigScreen: React.FC<Props> = ({ navigation }) => {
+const GameConfigScreen: React.FC<Props> = ({ navigation, route }) => {
   const [categories, setCategories] = useState<(Category & { checked: boolean })[]>([]);
   const [teams, setTeams] = useState<TeamWithPlayers[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [roundDuration, setRoundDuration] = useState(45);
-  const [numberOfWords, setNumberOfWords] = useState(20);
+  const [roundDuration, setRoundDuration] = useState(50);
+  const [numberOfWords, setNumberOfWords] = useState(25);
 
-  // Chargement des données
+  // Fonction pour charger les données
+  const loadData = async () => {
+    try {
+      setIsLoading(true);
+      
+      const loadedCategories = await Database.getCategories();
+      setCategories(loadedCategories.map(category => ({ ...category, checked: true })));
+      
+      const loadedTeams = await Database.getTeams();
+      const teamsWithPlayers = await Promise.all(
+        loadedTeams.map(async (team) => {
+          const players = await Database.getTeamPlayers(team.id!);
+          return { ...team, players };
+        })
+      );
+      
+      // Filtrer pour ne montrer que les équipes complètes (2 joueurs)
+      setTeams(teamsWithPlayers.filter(team => team.players.length === 2));
+    } catch (error) {
+      console.error('Erreur lors du chargement des données', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Rechargement à chaque fois qu'on revient sur l'écran
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [])
+  );
+
+  // Chargement initial
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        setIsLoading(true);
-        
-        const loadedCategories = await Database.getCategories();
-        setCategories(loadedCategories.map(category => ({ ...category, checked: true })));
-        
-        const loadedTeams = await Database.getTeams();
-        const teamsWithPlayers = await Promise.all(
-          loadedTeams.map(async (team) => {
-            const players = await Database.getTeamPlayers(team.id!);
-            return { ...team, players };
-          })
-        );
-        
-        // Filtrer pour ne montrer que les équipes complètes (2 joueurs)
-        setTeams(teamsWithPlayers.filter(team => team.players.length === 2));
-      } catch (error) {
-        console.error('Erreur lors du chargement des données', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    
     loadData();
   }, []);
 
@@ -68,12 +81,6 @@ const GameConfigScreen: React.FC<Props> = ({ navigation }) => {
     return colorMap[color] || 'ÉQUIPE';
   };
 
-  // Fonction pour obtenir l'icône de l'équipe
-  const getTeamIcon = () => {
-    // Placeholder pour l'icône - sera ajouté quand les images seront testées
-    return null;
-  };
-
   // Basculer la sélection d'une catégorie
   const toggleCategory = (id: number) => {
     setCategories(categories.map(category => 
@@ -85,6 +92,11 @@ const GameConfigScreen: React.FC<Props> = ({ navigation }) => {
   const toggleAllCategories = () => {
     const allChecked = categories.every(cat => cat.checked);
     setCategories(categories.map(category => ({ ...category, checked: !allChecked })));
+  };
+
+  // Vérifier si toutes les catégories sont activées
+  const areAllCategoriesChecked = () => {
+    return categories.every(cat => cat.checked);
   };
 
   // Validation et lancement du jeu
@@ -138,7 +150,7 @@ const GameConfigScreen: React.FC<Props> = ({ navigation }) => {
           </TouchableOpacity>
           
           <View style={styles.logoContainer}>
-            <Text style={styles.logoText}>Time's Out</Text>
+            <Text style={styles.logoText}>CONFIGURATION DE LA PARTIE</Text>
           </View>
         </View>
 
@@ -212,7 +224,9 @@ const GameConfigScreen: React.FC<Props> = ({ navigation }) => {
             style={styles.manageButton}
             onPress={toggleAllCategories}
           >
-            <Text style={styles.manageButtonText}>TOUT ACTIVER</Text>
+            <Text style={styles.manageButtonText}>
+              {areAllCategoriesChecked() ? 'TOUT DÉSACTIVER' : 'TOUT ACTIVER'}
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -283,11 +297,13 @@ const styles = StyleSheet.create({
   logoContainer: {
     flex: 1,
     alignItems: 'center',
+    paddingRight: 40, // Compenser la largeur du bouton retour pour centrer le titre
   },
   logoText: {
-    fontSize: typography.fontSize.xxxlarge,
+    fontSize: typography.fontSize.large,
     fontFamily: typography.fontFamily.bold,
     color: colors.accent,
+    textAlign: 'center',
   },
   section: {
     marginBottom: spacing.xl,
@@ -342,17 +358,21 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     marginBottom: spacing.sm,
     flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'space-between',
   },
   categoryText: {
     fontSize: typography.fontSize.medium,
     fontFamily: typography.fontFamily.bold,
-    marginRight: spacing.xs,
+    flex: 0.9,
+    textAlign: 'left',
   },
   categoryIcon: {
     fontSize: typography.fontSize.large,
     fontFamily: typography.fontFamily.bold,
+    flex: 0.1,
+    textAlign: 'center',
+    minWidth: 20,
   },
   manageButton: {
     alignSelf: 'center',

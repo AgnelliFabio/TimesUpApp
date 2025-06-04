@@ -1,0 +1,47 @@
+.
+├── App.tsx
+├── app.json
+├── arborescence.txt
+├── assets
+│   ├── adaptive-icon.png
+│   ├── favicon.png
+│   ├── icon.png
+│   ├── images
+│   │   ├── 1mot-picto.png
+│   │   ├── Description-picto.png
+│   │   ├── GradientBackground.png
+│   │   ├── Logo-TimesOut.png
+│   │   ├── Mimi-picto.png
+│   │   ├── icon-cyan.png
+│   │   ├── icon-rouge.png
+│   │   ├── icon-vert.png
+│   │   └── icon-violet.png
+│   └── splash-icon.png
+├── index.ts
+├── package-lock.json
+├── package.json
+├── src
+│   ├── assets
+│   ├── components
+│   │   └── CustomSlider.tsx
+│   ├── constants
+│   │   └── theme.ts
+│   ├── database
+│   │   └── Database.ts
+│   ├── hooks
+│   │   └── useAssets.ts
+│   ├── models
+│   │   └── GameModels.ts
+│   ├── navigation
+│   │   └── AppNavigator.tsx
+│   ├── screens
+│   │   ├── GameConfigScreen.tsx
+│   │   ├── GameScreen.tsx
+│   │   ├── HomeScreen.tsx
+│   │   ├── PlayersScreen.tsx
+│   │   └── TeamsScreen.tsx
+│   ├── services
+│   └── utils
+└── tsconfig.json
+
+14 directories, 31 files

@@ -15,7 +15,7 @@ export type RootStackParamList = {
   Home: undefined;
   Players: undefined;
   Teams: undefined;
-  GameConfig: undefined;
+  GameConfig: { refresh?: number } | undefined; // Permettre le paramètre refresh
   Game: { gameConfig: GameConfig };
 };
 
