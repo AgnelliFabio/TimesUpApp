@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, Alert, BackHandler } from 'react-native';
-import { Button, Card, Text, Title, IconButton, Divider, FAB, Dialog, Portal } from 'react-native-paper';
+import { View, StyleSheet, Alert, BackHandler, ImageBackground, TouchableOpacity, Image, Dimensions } from 'react-native';
+import { Button, Text, Dialog, Portal } from 'react-native-paper';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
@@ -15,6 +15,10 @@ import {
   ROUND_INSTRUCTIONS,
   TeamWithPlayers
 } from '../models/GameModels';
+import { colors, typography, spacing, borderRadius, shadows } from '../constants/theme';
+import { images } from '../hooks/useAssets';
+
+const { width, height } = Dimensions.get('window');
 
 type GameScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Game'>;
 type GameScreenRouteProp = RouteProp<RootStackParamList, 'Game'>;
@@ -24,154 +28,205 @@ type Props = {
   route: GameScreenRouteProp;
 };
 
+// Mapping des pictos de manche
+const ROUND_PICTOS = {
+  [RoundNumber.DESCRIPTION]: images.pictos?.description,
+  [RoundNumber.ONE_WORD]: images.pictos?.oneWord,
+  [RoundNumber.MIME]: images.pictos?.mime,
+};
+
+// Noms des manches
+const ROUND_NAMES = {
+  [RoundNumber.DESCRIPTION]: 'DESCRIPTION COMPLÈTE',
+  [RoundNumber.ONE_WORD]: 'DESCRIPTION 1 MOT',
+  [RoundNumber.MIME]: 'MIME',
+};
+
 const GameScreen: React.FC<Props> = ({ navigation, route }) => {
   const { gameConfig } = route.params;
   
   // État du jeu
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [instructionsVisible, setInstructionsVisible] = useState(false);
   const [scoreVisible, setScoreVisible] = useState(false);
-  const [confirmEndTurnVisible, setConfirmEndTurnVisible] = useState(false);
   const [confirmEndGameVisible, setConfirmEndGameVisible] = useState(false);
   const [showTeamPreparationScreen, setShowTeamPreparationScreen] = useState(false);
   
   // Référence pour le timer
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   
-  // Récupérer un nom d'équipe à partir de sa couleur
-  const getTeamName = (color: string): string => {
-    const colorMap: { [key: string]: string } = {
-      '#e53935': 'Rouge',
-      '#1e88e5': 'Bleu',
-      '#43a047': 'Vert',
-      '#fdd835': 'Jaune'
+  // Obtenir la configuration d'équipe par couleur
+  const getTeamConfig = (color: string) => {
+    const colorMap: { [key: string]: any } = {
+      [colors.teams.cyan.main]: {
+        name: 'CYAN',
+        icon: images.teams?.cyan,
+        colors: colors.teams.cyan
+      },
+      [colors.teams.violet.main]: {
+        name: 'VIOLET',
+        icon: images.teams?.violet,
+        colors: colors.teams.violet
+      },
+      [colors.teams.rouge.main]: {
+        name: 'POURPRE',
+        icon: images.teams?.rouge,
+        colors: colors.teams.rouge
+      },
+      [colors.teams.vert.main]: {
+        name: 'VERTE',
+        icon: images.teams?.vert,
+        colors: colors.teams.vert
+      },
     };
-    
-    return colorMap[color] || 'Inconnu';
+    return colorMap[color] || colorMap[colors.teams.cyan.main];
   };
-  
-  // Initialisation du jeu
-  useEffect(() => {
-    const initializeGame = async () => {
-      try {
-        setIsLoading(true);
+
+// Initialisation du jeu
+useEffect(() => {
+  const initializeGame = async () => {
+    try {
+      setIsLoading(true);
+      
+      // Récupérer un ensemble unique de phrases pour toutes les équipes
+      const uniquePhrases = await Database.getUniquePhrasesByTeams(
+        gameConfig.selectedCategoryIds,
+        gameConfig.phrasesPerTeam,
+        gameConfig.teams.length
+      );
+      
+      // Vérifier qu'on a assez de phrases
+      const totalNeeded = gameConfig.phrasesPerTeam * gameConfig.teams.length;
+      if (uniquePhrases.length < totalNeeded) {
+        Alert.alert(
+          'Attention',
+          `Pas assez de phrases disponibles dans les catégories sélectionnées.\nDemandé: ${totalNeeded}, Disponible: ${uniquePhrases.length}\n\nLa partie va commencer avec toutes les phrases disponibles.`
+        );
+      }
+      
+      // Répartir les phrases entre les équipes
+      const teamPhrases: GamePhrase[] = [];
+      
+      // Log des phrases pour debug avec couleurs
+      console.log('🎮 RÉPARTITION DES PHRASES UNIQUES PAR ÉQUIPE:');
+      
+      for (let teamIndex = 0; teamIndex < gameConfig.teams.length; teamIndex++) {
+        const team = gameConfig.teams[teamIndex];
+        const teamConfig = getTeamConfig(team.color);
         
-        // Pour chaque équipe, récupérer ses propres phrases
-        const teamPhrases: GamePhrase[] = [];
+        console.log(`\n🎯 ÉQUIPE ${teamConfig.name} (${team.color}) - ID: ${team.id}:`);
         
-        // Pour chaque équipe, récupérer un ensemble de phrases
-        for (const team of gameConfig.teams) {
-          // Récupérer des phrases aléatoires pour cette équipe
-          const phrasesForTeam = await Database.getRandomPhrases(
-            gameConfig.selectedCategoryIds,
-            gameConfig.phrasesPerTeam
-          );
-          
-          // Transformer les phrases pour le jeu et les assigner à cette équipe
-          const gamePhrases: GamePhrase[] = phrasesForTeam.map(phrase => ({
+        // Calculer l'index de début et de fin pour cette équipe
+        const startIndex = teamIndex * gameConfig.phrasesPerTeam;
+        const endIndex = Math.min(startIndex + gameConfig.phrasesPerTeam, uniquePhrases.length);
+        
+        // Assigner les phrases à cette équipe
+        for (let i = startIndex; i < endIndex; i++) {
+          const phrase = uniquePhrases[i];
+          const gamePhrase: GamePhrase = {
             ...phrase,
             status: PhraseStatus.PENDING,
             teamId: team.id!
-          }));
+          };
           
-          // Ajouter ces phrases à la liste globale
-          teamPhrases.push(...gamePhrases);
+          teamPhrases.push(gamePhrase);
+          console.log(`  ${i - startIndex + 1}. "${phrase.text}" (ID: ${phrase.id})`);
         }
         
-        // Mélanger toutes les phrases pour la première manche
-        const shuffledPhrases = [...teamPhrases].sort(() => 0.5 - Math.random());
-        
-        // Initialiser les scores
-        const initialScores: Record<number, number> = {};
-        gameConfig.teams.forEach(team => {
-          initialScores[team.id!] = 0;
-        });
-        
-        // Initialiser l'état des manches
-        const roundStates: Record<RoundNumber, RoundState> = {
-          [RoundNumber.DESCRIPTION]: {
-            currentTeamIndex: 0,
-            currentPhraseIndex: 0,
-            phrasesForRound: [...shuffledPhrases],
-            scores: { ...initialScores },
-            timeLeft: gameConfig.roundDuration,
-            roundActive: false
-          },
-          [RoundNumber.ONE_WORD]: {
-            currentTeamIndex: 0,
-            currentPhraseIndex: 0,
-            phrasesForRound: [],  // Sera rempli après la première manche
-            scores: { ...initialScores },
-            timeLeft: gameConfig.roundDuration,
-            roundActive: false
-          },
-          [RoundNumber.MIME]: {
-            currentTeamIndex: 0,
-            currentPhraseIndex: 0,
-            phrasesForRound: [],  // Sera rempli après la deuxième manche
-            scores: { ...initialScores },
-            timeLeft: gameConfig.roundDuration,
-            roundActive: false
-          }
-        };
-        
-        // Initialiser l'état du jeu
-        const newGameState: GameState = {
-          config: gameConfig,
-          currentRound: RoundNumber.DESCRIPTION,
-          rounds: roundStates,
-          gameStarted: false,
-          gameFinished: false
-        };
-        
-        setGameState(newGameState);
-        setInstructionsVisible(true);
-      } catch (error) {
-        console.error('Erreur lors de l\'initialisation du jeu', error);
-        Alert.alert('Erreur', 'Impossible d\'initialiser le jeu. Veuillez réessayer.');
-        navigation.goBack();
-      } finally {
-        setIsLoading(false);
+        // Si on n'a pas assez de phrases pour cette équipe
+        if (endIndex - startIndex < gameConfig.phrasesPerTeam) {
+          console.log(`  ⚠️ Seulement ${endIndex - startIndex} phrases assignées sur ${gameConfig.phrasesPerTeam} demandées`);
+        }
       }
-    };
-    
-    initializeGame();
-    
-    // Gestion du bouton retour
-    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (gameState?.gameStarted && !gameState.gameFinished) {
-        setConfirmEndGameVisible(true);
-        return true;
-      }
-      return false;
-    });
-    
-    return () => {
-      // Nettoyage
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
-      backHandler.remove();
-    };
-  }, []);
-  
-  // Démarrer le jeu
-  const startGame = () => {
-    if (!gameState) return;
-    
-    setGameState(prevState => {
-      if (!prevState) return null;
       
-      return {
-        ...prevState,
-        gameStarted: true,
+      // Mélanger toutes les phrases pour la première manche
+      const shuffledPhrases = [...teamPhrases].sort(() => 0.5 - Math.random());
+      
+      console.log(`\n📊 RÉSUMÉ:`);
+      console.log(`- Total phrases uniques: ${uniquePhrases.length}`);
+      console.log(`- Phrases par équipe (réel): ${Math.floor(teamPhrases.length / gameConfig.teams.length)}`);
+      console.log(`- Phrases mélangées pour la manche 1: ${shuffledPhrases.length}`);
+      
+      // Vérifier la répartition
+      const phrasesByTeam = teamPhrases.reduce((acc, phrase) => {
+        acc[phrase.teamId] = (acc[phrase.teamId] || 0) + 1;
+        return acc;
+      }, {} as Record<number, number>);
+      
+      console.log('📋 Répartition finale:', phrasesByTeam);
+      
+      // Initialiser les scores
+      const initialScores: Record<number, number> = {};
+      gameConfig.teams.forEach(team => {
+        initialScores[team.id!] = 0;
+      });
+      
+      // Initialiser l'état des manches
+      const roundStates: Record<RoundNumber, RoundState> = {
+        [RoundNumber.DESCRIPTION]: {
+          currentTeamIndex: 0,
+          currentPhraseIndex: 0,
+          phrasesForRound: [...shuffledPhrases],
+          scores: { ...initialScores },
+          timeLeft: gameConfig.roundDuration,
+          roundActive: false
+        },
+        [RoundNumber.ONE_WORD]: {
+          currentTeamIndex: 0,
+          currentPhraseIndex: 0,
+          phrasesForRound: [],
+          scores: { ...initialScores },
+          timeLeft: gameConfig.roundDuration,
+          roundActive: false
+        },
+        [RoundNumber.MIME]: {
+          currentTeamIndex: 0,
+          currentPhraseIndex: 0,
+          phrasesForRound: [],
+          scores: { ...initialScores },
+          timeLeft: gameConfig.roundDuration,
+          roundActive: false
+        }
       };
-    });
-    
-    // Montrer l'écran de préparation pour la première équipe
-    setShowTeamPreparationScreen(true);
+      
+      // Initialiser l'état du jeu
+      const newGameState: GameState = {
+        config: gameConfig,
+        currentRound: RoundNumber.DESCRIPTION,
+        rounds: roundStates,
+        gameStarted: false,
+        gameFinished: false
+      };
+      
+      setGameState(newGameState);
+      setShowTeamPreparationScreen(true);
+    } catch (error) {
+      console.error('Erreur lors de l\'initialisation du jeu', error);
+      Alert.alert('Erreur', 'Impossible d\'initialiser le jeu. Veuillez réessayer.');
+      navigation.goBack();
+    } finally {
+      setIsLoading(false);
+    }
   };
+  
+  initializeGame();
+  
+  // Gestion du bouton retour
+  const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+    if (gameState?.gameStarted && !gameState.gameFinished) {
+      setConfirmEndGameVisible(true);
+      return true;
+    }
+    return false;
+  });
+  
+  return () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
+    backHandler.remove();
+  };
+}, []);
   
   // Démarrer le timer
   const startTimer = () => {
@@ -185,17 +240,13 @@ const GameScreen: React.FC<Props> = ({ navigation, route }) => {
         
         const currentRoundState = prevState.rounds[prevState.currentRound];
         
-        // Si le timer est actif
         if (currentRoundState.roundActive) {
-          // Si le temps est écoulé
           if (currentRoundState.timeLeft <= 1) {
-            // Arrêter le timer
             if (timerRef.current) {
               clearInterval(timerRef.current);
               timerRef.current = null;
             }
             
-            // Mettre à jour l'état pour le tour suivant (next team)
             const newRounds = { ...prevState.rounds };
             newRounds[prevState.currentRound] = {
               ...currentRoundState,
@@ -203,7 +254,6 @@ const GameScreen: React.FC<Props> = ({ navigation, route }) => {
               roundActive: false
             };
             
-            // Afficher un message indiquant la fin du tour
             setTimeout(() => {
               Alert.alert('Temps écoulé!', 'C\'est au tour de l\'équipe suivante.');
               nextTeamTurn();
@@ -215,7 +265,6 @@ const GameScreen: React.FC<Props> = ({ navigation, route }) => {
             };
           }
           
-          // Décrémenter le temps
           const newRounds = { ...prevState.rounds };
           newRounds[prevState.currentRound] = {
             ...currentRoundState,
@@ -234,256 +283,181 @@ const GameScreen: React.FC<Props> = ({ navigation, route }) => {
   };
   
   // Marquer une phrase comme trouvée
-  const markPhraseAsFound = () => {
-    if (!gameState) return;
-    
-    const currentRound = gameState.currentRound;
-    const roundState = gameState.rounds[currentRound];
-    const currentTeamId = gameState.config.teams[roundState.currentTeamIndex].id!;
-    const currentPhrase = roundState.phrasesForRound[roundState.currentPhraseIndex];
-    
-    // Vérifier si la phrase appartient à l'équipe actuelle
-    if (currentPhrase.teamId !== currentTeamId) {
-      Alert.alert('Attention', 'Cette phrase appartient à une autre équipe. Vous ne pouvez pas la marquer comme trouvée.');
-      return;
-    }
-    
-    setGameState(prevState => {
-      if (!prevState) return null;
-      
-      const currentRoundState = prevState.rounds[currentRound];
-      const phrases = [...currentRoundState.phrasesForRound];
-      
-      // Mettre à jour le statut de la phrase
-      phrases[currentRoundState.currentPhraseIndex] = {
-        ...currentPhrase,
-        status: PhraseStatus.FOUND
-      };
-      
-      // Mettre à jour le score de l'équipe
-      const newScores = { ...currentRoundState.scores };
-      newScores[currentTeamId] = newScores[currentTeamId] + 1;
-      
-      // Compter combien de phrases de l'équipe actuelle sont encore en attente
-      const pendingPhrases = phrases.filter(p => 
-        p.status === PhraseStatus.PENDING && p.teamId === currentTeamId
-      );
-      
-      // Si toutes les phrases de l'équipe actuelle ont été devinées, c'est au tour de l'équipe suivante
-      if (pendingPhrases.length === 0) {
-        // Vérifier s'il reste des phrases pour les autres équipes
-        const anyPendingPhrases = phrases.some(p => p.status === PhraseStatus.PENDING);
-        
-        if (!anyPendingPhrases) {
-          // Toutes les phrases ont été devinées
-          if (timerRef.current) {
-            clearInterval(timerRef.current);
-            timerRef.current = null;
-          }
-          
-          const newRounds = { ...prevState.rounds };
-          newRounds[currentRound] = {
-            ...currentRoundState,
-            phrasesForRound: phrases,
-            scores: newScores,
-            roundActive: false
-          };
-          
-          // Si ce n'est pas la dernière manche, préparer la suivante
-          if (currentRound < RoundNumber.MIME) {
-            setTimeout(() => {
-              Alert.alert('Fin de la manche!', 'Toutes les phrases ont été devinées. Passons à la manche suivante.');
-              prepareNextRound(currentRound + 1, phrases, newScores);
-            }, 100);
-          } else {
-            // C'est la fin du jeu
-            setTimeout(() => {
-              Alert.alert('Fin du jeu!', 'La partie est terminée. Consultez les scores finaux.');
-              setScoreVisible(true);
-            }, 100);
-            
-            return {
-              ...prevState,
-              rounds: newRounds,
-              gameFinished: true
-            };
-          }
-        } else {
-          // Il reste des phrases pour d'autres équipes, passer à l'équipe suivante
-          setTimeout(() => {
-            Alert.alert('Bravo!', 'Vous avez deviné toutes vos phrases. C\'est au tour de l\'équipe suivante.');
-            nextTeamTurn();
-          }, 100);
-          
-          const newRounds = { ...prevState.rounds };
-          newRounds[currentRound] = {
-            ...currentRoundState,
-            phrasesForRound: phrases,
-            scores: newScores,
-            roundActive: false
-          };
-          
-          return {
-            ...prevState,
-            rounds: newRounds
-          };
-        }
-      } else {
-        // Il reste des phrases pour l'équipe actuelle, trouver la prochaine phrase pour cette équipe
-        let nextPhraseIndex = -1;
-        
-        for (let i = 0; i < phrases.length; i++) {
-          if (phrases[i].status === PhraseStatus.PENDING && phrases[i].teamId === currentTeamId) {
-            nextPhraseIndex = i;
-            break;
-          }
-        }
-        
-        const newRounds = { ...prevState.rounds };
-        newRounds[currentRound] = {
-          ...currentRoundState,
-          currentPhraseIndex: nextPhraseIndex !== -1 ? nextPhraseIndex : currentRoundState.currentPhraseIndex,
-          phrasesForRound: phrases,
-          scores: newScores
-        };
-        
-        return {
-          ...prevState,
-          rounds: newRounds
-        };
-      }
-      
-      return prevState; // Fallback return pour éviter l'erreur de TypeScript
-    });
-  };
+const markPhraseAsFound = () => {
+  if (!gameState) return;
   
-  // Marquer une phrase comme passée
-  const markPhraseAsSkipped = () => {
-    if (!gameState) return;
+  const currentRound = gameState.currentRound;
+  const roundState = gameState.rounds[currentRound];
+  const currentTeamId = gameState.config.teams[roundState.currentTeamIndex].id!;
+  const currentPhrase = roundState.phrasesForRound[roundState.currentPhraseIndex];
+  
+  console.log('🎯 TROUVÉ - Phrase:', currentPhrase?.text, '| Équipe qui joue:', getTeamConfig(currentTeam.color).name, `(${currentTeam.color})`, '| Phrase appartient à:', currentPhrase?.teamId);
+  
+  setGameState(prevState => {
+    if (!prevState) return null;
     
-    const currentRound = gameState.currentRound;
-    const roundState = gameState.rounds[currentRound];
-    const currentTeamId = gameState.config.teams[roundState.currentTeamIndex].id!;
-    const currentPhrase = roundState.phrasesForRound[roundState.currentPhraseIndex];
+    const currentRoundState = prevState.rounds[currentRound];
+    const phrases = [...currentRoundState.phrasesForRound];
     
-    // Vérifier si la phrase appartient à l'équipe actuelle
-    if (currentPhrase.teamId !== currentTeamId) {
-      Alert.alert('Attention', 'Cette phrase appartient à une autre équipe. Vous ne pouvez pas la passer.');
-      return;
+    phrases[currentRoundState.currentPhraseIndex] = {
+      ...currentPhrase,
+      status: PhraseStatus.FOUND
+    };
+    
+    const newScores = { ...currentRoundState.scores };
+    newScores[currentTeamId] = newScores[currentTeamId] + 1;
+    
+    // Chercher la prochaine phrase disponible (n'importe laquelle)
+    let nextPhraseIndex = -1;
+    for (let i = 0; i < phrases.length; i++) {
+      if (phrases[i].status === PhraseStatus.PENDING) {
+        nextPhraseIndex = i;
+        break;
+      }
     }
     
-    setGameState(prevState => {
-      if (!prevState) return null;
+    // Si plus de phrases disponibles, fin de la manche
+    if (nextPhraseIndex === -1) {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
       
-      const currentRoundState = prevState.rounds[currentRound];
-      const phrases = [...currentRoundState.phrasesForRound];
-      
-      // Mettre à jour le statut de la phrase
-      phrases[currentRoundState.currentPhraseIndex] = {
-        ...currentPhrase,
-        status: PhraseStatus.SKIPPED
+      const newRounds = { ...prevState.rounds };
+      newRounds[currentRound] = {
+        ...currentRoundState,
+        phrasesForRound: phrases,
+        scores: newScores,
+        roundActive: false
       };
       
-      // Compter combien de phrases de l'équipe actuelle sont encore en attente
-      const pendingPhrases = phrases.filter(p => 
-        p.status === PhraseStatus.PENDING && p.teamId === currentTeamId
-      );
-      
-      // Si toutes les phrases de l'équipe actuelle ont été traitées, c'est au tour de l'équipe suivante
-      if (pendingPhrases.length === 0) {
-        // Vérifier s'il reste des phrases pour les autres équipes
-        const anyPendingPhrases = phrases.some(p => p.status === PhraseStatus.PENDING);
-        
-        if (!anyPendingPhrases) {
-          // Toutes les phrases ont été traitées
-          if (timerRef.current) {
-            clearInterval(timerRef.current);
-            timerRef.current = null;
-          }
-          
-          const newRounds = { ...prevState.rounds };
-          newRounds[currentRound] = {
-            ...currentRoundState,
-            phrasesForRound: phrases,
-            roundActive: false
-          };
-          
-          // Si ce n'est pas la dernière manche, préparer la suivante
-          if (currentRound < RoundNumber.MIME) {
-            setTimeout(() => {
-              Alert.alert('Fin de la manche!', 'Toutes les phrases ont été traitées. Passons à la manche suivante.');
-              prepareNextRound(currentRound + 1, phrases, currentRoundState.scores);
-            }, 100);
-          } else {
-            // C'est la fin du jeu
-            setTimeout(() => {
-              Alert.alert('Fin du jeu!', 'La partie est terminée. Consultez les scores finaux.');
-              setScoreVisible(true);
-            }, 100);
-            
-            return {
-              ...prevState,
-              rounds: newRounds,
-              gameFinished: true
-            };
-          }
-        } else {
-          // Il reste des phrases pour d'autres équipes, passer à l'équipe suivante
-          setTimeout(() => {
-            Alert.alert('Attention!', 'Vous avez traité toutes vos phrases. C\'est au tour de l\'équipe suivante.');
-            nextTeamTurn();
-          }, 100);
-          
-          const newRounds = { ...prevState.rounds };
-          newRounds[currentRound] = {
-            ...currentRoundState,
-            phrasesForRound: phrases,
-            roundActive: false
-          };
-          
-          return {
-            ...prevState,
-            rounds: newRounds
-          };
-        }
+      if (currentRound < RoundNumber.MIME) {
+        setTimeout(() => {
+          prepareNextRound(currentRound + 1, phrases, newScores);
+        }, 100);
       } else {
-        // Il reste des phrases pour l'équipe actuelle, trouver la prochaine phrase pour cette équipe
-        let nextPhraseIndex = -1;
-        
-        for (let i = 0; i < phrases.length; i++) {
-          if (phrases[i].status === PhraseStatus.PENDING && phrases[i].teamId === currentTeamId) {
-            nextPhraseIndex = i;
-            break;
-          }
-        }
-        
-        const newRounds = { ...prevState.rounds };
-        newRounds[currentRound] = {
-          ...currentRoundState,
-          currentPhraseIndex: nextPhraseIndex !== -1 ? nextPhraseIndex : currentRoundState.currentPhraseIndex,
-          phrasesForRound: phrases
-        };
+        setTimeout(() => {
+          setScoreVisible(true);
+        }, 100);
         
         return {
           ...prevState,
-          rounds: newRounds
+          rounds: newRounds,
+          gameFinished: true
         };
       }
       
-      return prevState; // Fallback return pour éviter l'erreur de TypeScript
-    });
-  };
+      return {
+        ...prevState,
+        rounds: newRounds
+      };
+    } else {
+      // Il reste des phrases, continuer avec la prochaine
+      const newRounds = { ...prevState.rounds };
+      newRounds[currentRound] = {
+        ...currentRoundState,
+        currentPhraseIndex: nextPhraseIndex,
+        phrasesForRound: phrases,
+        scores: newScores
+      };
+      
+      return {
+        ...prevState,
+        rounds: newRounds
+      };
+    }
+  });
+};
+
+// Marquer une phrase comme passée
+const markPhraseAsSkipped = () => {
+  if (!gameState) return;
+  
+  const currentRound = gameState.currentRound;
+  const roundState = gameState.rounds[currentRound];
+  const currentPhrase = roundState.phrasesForRound[roundState.currentPhraseIndex];
+  
+  console.log('⏭️ PASSÉ - Phrase:', currentPhrase?.text, '| Équipe qui joue:', getTeamConfig(currentTeam.color).name, `(${currentTeam.color})`, '| Phrase appartient à:', currentPhrase?.teamId);
+  
+  setGameState(prevState => {
+    if (!prevState) return null;
+    
+    const currentRoundState = prevState.rounds[currentRound];
+    const phrases = [...currentRoundState.phrasesForRound];
+    
+    phrases[currentRoundState.currentPhraseIndex] = {
+      ...currentPhrase,
+      status: PhraseStatus.SKIPPED
+    };
+    
+    // Chercher la prochaine phrase disponible (n'importe laquelle)
+    let nextPhraseIndex = -1;
+    for (let i = 0; i < phrases.length; i++) {
+      if (phrases[i].status === PhraseStatus.PENDING) {
+        nextPhraseIndex = i;
+        break;
+      }
+    }
+    
+    // Si plus de phrases disponibles, fin de la manche
+    if (nextPhraseIndex === -1) {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      
+      const newRounds = { ...prevState.rounds };
+      newRounds[currentRound] = {
+        ...currentRoundState,
+        phrasesForRound: phrases,
+        roundActive: false
+      };
+      
+      if (currentRound < RoundNumber.MIME) {
+        setTimeout(() => {
+          prepareNextRound(currentRound + 1, phrases, currentRoundState.scores);
+        }, 100);
+      } else {
+        setTimeout(() => {
+          setScoreVisible(true);
+        }, 100);
+        
+        return {
+          ...prevState,
+          rounds: newRounds,
+          gameFinished: true
+        };
+      }
+      
+      return {
+        ...prevState,
+        rounds: newRounds
+      };
+    } else {
+      // Il reste des phrases, continuer avec la prochaine
+      const newRounds = { ...prevState.rounds };
+      newRounds[currentRound] = {
+        ...currentRoundState,
+        currentPhraseIndex: nextPhraseIndex,
+        phrasesForRound: phrases
+      };
+      
+      return {
+        ...prevState,
+        rounds: newRounds
+      };
+    }
+  });
+};
   
   // Préparer la manche suivante
   const prepareNextRound = (nextRound: RoundNumber, phrases: GamePhrase[], scores: Record<number, number>) => {
     setTimeout(() => {
-      // Réinitialiser le statut des phrases
       const resetPhrases = phrases.map(phrase => ({
         ...phrase,
         status: PhraseStatus.PENDING
       }));
       
-      // Mélanger les phrases
       const shuffledPhrases = [...resetPhrases].sort(() => 0.5 - Math.random());
       
       setGameState(prevState => {
@@ -506,153 +480,93 @@ const GameScreen: React.FC<Props> = ({ navigation, route }) => {
         };
       });
       
-      // Afficher les instructions de la nouvelle manche
-      setInstructionsVisible(true);
-      
-      // Montrer l'écran de préparation après les instructions
-      setTimeout(() => {
-        setInstructionsVisible(false);
-        setShowTeamPreparationScreen(true);
-      }, 3000);
-    }, 100);
-  };
-  
-  // Passer au tour de l'équipe suivante
-  const nextTeamTurn = () => {
-    if (!gameState) return;
-    
-    const currentRound = gameState.currentRound;
-    const roundState = gameState.rounds[currentRound];
-    const teamCount = gameState.config.teams.length;
-    
-    setGameState(prevState => {
-      if (!prevState) return null;
-      
-      const currentRoundState = prevState.rounds[currentRound];
-      
-      // Calculer l'index de la prochaine équipe
-      let nextTeamIndex = (currentRoundState.currentTeamIndex + 1) % teamCount;
-      const nextTeam = prevState.config.teams[nextTeamIndex];
-      
-      // Trouver l'index de la première phrase non devinée pour cette équipe
-      let nextPhraseIndex = -1;
-      const phrases = currentRoundState.phrasesForRound;
-      
-      for (let i = 0; i < phrases.length; i++) {
-        if (phrases[i].status === PhraseStatus.PENDING && phrases[i].teamId === nextTeam.id) {
-          nextPhraseIndex = i;
-          break;
-        }
-      }
-      
-      // Si toutes les phrases de l'équipe sont devinées, voir si une autre équipe a encore des phrases
-      if (nextPhraseIndex === -1) {
-        let foundTeamWithPendingPhrases = false;
-        let teamsChecked = 0;
-        let checkTeamIndex = nextTeamIndex;
-        
-        // Vérifier toutes les équipes pour voir si l'une d'elles a encore des phrases à deviner
-        while (teamsChecked < teamCount) {
-          const checkTeam = prevState.config.teams[checkTeamIndex];
-          
-          // Chercher une phrase pour cette équipe
-          for (let i = 0; i < phrases.length; i++) {
-            if (phrases[i].status === PhraseStatus.PENDING && phrases[i].teamId === checkTeam.id) {
-              nextPhraseIndex = i;
-              nextTeamIndex = checkTeamIndex;
-              foundTeamWithPendingPhrases = true;
-              break;
-            }
-          }
-          
-          if (foundTeamWithPendingPhrases) {
-            break;
-          }
-          
-          // Passer à l'équipe suivante
-          checkTeamIndex = (checkTeamIndex + 1) % teamCount;
-          teamsChecked++;
-        }
-        
-        // Si aucune équipe n'a de phrases en attente, c'est la fin de la manche
-        if (nextPhraseIndex === -1) {
-          if (timerRef.current) {
-            clearInterval(timerRef.current);
-            timerRef.current = null;
-          }
-          
-          const newRounds = { ...prevState.rounds };
-          newRounds[currentRound] = {
-            ...currentRoundState,
-            roundActive: false
-          };
-          
-          // Si ce n'est pas la dernière manche, préparer la suivante
-          if (currentRound < RoundNumber.MIME) {
-            setTimeout(() => {
-              Alert.alert('Fin de la manche!', 'Toutes les phrases ont été devinées. Passons à la manche suivante.');
-              prepareNextRound(currentRound + 1, phrases, currentRoundState.scores);
-            }, 100);
-          } else {
-            // C'est la fin du jeu
-            setTimeout(() => {
-              Alert.alert('Fin du jeu!', 'La partie est terminée. Consultez les scores finaux.');
-              setScoreVisible(true);
-            }, 100);
-            
-            return {
-              ...prevState,
-              rounds: newRounds,
-              gameFinished: true
-            };
-          }
-          
-          return prevState; // Pour éviter une erreur de TypeScript
-        }
-      }
-      
-      // Mettre à jour l'état avec la nouvelle équipe et phrase
-      const newRounds = { ...prevState.rounds };
-      newRounds[currentRound] = {
-        ...currentRoundState,
-        currentTeamIndex: nextTeamIndex,
-        currentPhraseIndex: nextPhraseIndex !== -1 ? nextPhraseIndex : 0,
-        timeLeft: gameConfig.roundDuration,
-        roundActive: false
-      };
-      
-      return {
-        ...prevState,
-        rounds: newRounds
-      };
-    });
-    
-    setConfirmEndTurnVisible(false);
-    
-    // Montrer l'écran de préparation pour l'équipe suivante
-    setTimeout(() => {
       setShowTeamPreparationScreen(true);
     }, 100);
   };
   
-  // Terminer le tour en cours (bouton "Terminer le tour")
-  const endCurrentTurn = () => {
-    if (!gameState) return;
+  // Passer au tour de l'équipe suivante
+const nextTeamTurn = () => {
+  if (!gameState) return;
+  
+  const currentRound = gameState.currentRound;
+  const teamCount = gameState.config.teams.length;
+  
+  setGameState(prevState => {
+    if (!prevState) return null;
     
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
+    const currentRoundState = prevState.rounds[currentRound];
+    
+    // Calculer l'index de la prochaine équipe
+    const nextTeamIndex = (currentRoundState.currentTeamIndex + 1) % teamCount;
+    
+    // Trouver la première phrase disponible (n'importe laquelle)
+    let nextPhraseIndex = -1;
+    const phrases = currentRoundState.phrasesForRound;
+    
+    for (let i = 0; i < phrases.length; i++) {
+      if (phrases[i].status === PhraseStatus.PENDING) {
+        nextPhraseIndex = i;
+        break;
+      }
     }
     
-    setConfirmEndTurnVisible(true);
-  };
+    // Si aucune phrase disponible, fin de la manche
+    if (nextPhraseIndex === -1) {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      
+      const newRounds = { ...prevState.rounds };
+      newRounds[currentRound] = {
+        ...currentRoundState,
+        roundActive: false
+      };
+      
+      if (currentRound < RoundNumber.MIME) {
+        setTimeout(() => {
+          prepareNextRound(currentRound + 1, phrases, currentRoundState.scores);
+        }, 100);
+      } else {
+        setTimeout(() => {
+          setScoreVisible(true);
+        }, 100);
+        
+        return {
+          ...prevState,
+          rounds: newRounds,
+          gameFinished: true
+        };
+      }
+      
+      return prevState;
+    }
+    
+    // Mettre à jour l'état avec la nouvelle équipe et phrase
+    const newRounds = { ...prevState.rounds };
+    newRounds[currentRound] = {
+      ...currentRoundState,
+      currentTeamIndex: nextTeamIndex,
+      currentPhraseIndex: nextPhraseIndex,
+      timeLeft: gameConfig.roundDuration,
+      roundActive: false
+    };
+    
+    return {
+      ...prevState,
+      rounds: newRounds
+    };
+  });
   
-  // Reprendre le jeu (après une pause ou les instructions)
+  setTimeout(() => {
+    setShowTeamPreparationScreen(true);
+  }, 100);
+};
+  
+  // Reprendre le jeu
   const resumeGame = () => {
     if (!gameState) return;
     
-    setInstructionsVisible(false);
-    setScoreVisible(false);
     setShowTeamPreparationScreen(false);
     
     setGameState(prevState => {
@@ -660,7 +574,6 @@ const GameScreen: React.FC<Props> = ({ navigation, route }) => {
       
       const currentRoundState = prevState.rounds[prevState.currentRound];
       
-      // Activer la manche
       const newRounds = { ...prevState.rounds };
       newRounds[prevState.currentRound] = {
         ...currentRoundState,
@@ -669,11 +582,11 @@ const GameScreen: React.FC<Props> = ({ navigation, route }) => {
       
       return {
         ...prevState,
+        gameStarted: true,
         rounds: newRounds
       };
     });
     
-    // Démarrer le timer
     startTimer();
   };
   
@@ -695,6 +608,15 @@ const GameScreen: React.FC<Props> = ({ navigation, route }) => {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
   
+  // Calculer le pourcentage du temps écoulé pour le cercle
+  const getTimePercentage = (): number => {
+    if (!gameState) return 0;
+    const roundState = gameState.rounds[gameState.currentRound];
+    const totalTime = gameConfig.roundDuration;
+    const timeElapsed = totalTime - roundState.timeLeft;
+    return (timeElapsed / totalTime) * 100;
+  };
+  
   // Affichage des scores
   const renderScores = () => {
     if (!gameState) return null;
@@ -705,24 +627,28 @@ const GameScreen: React.FC<Props> = ({ navigation, route }) => {
     
     return (
       <View style={styles.scoresContainer}>
-        <Text style={styles.scoresTitle}>Scores actuels</Text>
-        {teams.map(team => (
-          <View key={team.id} style={styles.scoreRow}>
-            <View style={[styles.teamColorDot, { backgroundColor: team.color }]} />
-            <Text style={styles.teamName}>Équipe {getTeamName(team.color)}</Text>
-            <Text style={styles.scoreValue}>{scores[team.id!]}</Text>
-          </View>
-        ))}
+        <Text style={styles.scoresTitle}>SCORES</Text>
+        {teams.map(team => {
+          const teamConfig = getTeamConfig(team.color);
+          return (
+            <View key={team.id} style={styles.scoreRow}>
+              <View style={[styles.teamColorDot, { backgroundColor: team.color }]} />
+              <Text style={styles.scoreTeamName}>ÉQUIPE {teamConfig.name}</Text>
+              <Text style={styles.scoreValue}>{scores[team.id!]}</Text>
+            </View>
+          );
+        })}
       </View>
     );
   };
   
-  // Rendu principal
   if (isLoading || !gameState) {
     return (
-      <View style={styles.loadingContainer}>
-        <Text>Chargement du jeu...</Text>
-      </View>
+      <ImageBackground source={images.gradientBackground} style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Chargement du jeu...</Text>
+        </View>
+      </ImageBackground>
     );
   }
   
@@ -730,359 +656,491 @@ const GameScreen: React.FC<Props> = ({ navigation, route }) => {
   const roundState = gameState.rounds[currentRound];
   const currentTeam = gameState.config.teams[roundState.currentTeamIndex];
   const currentPhrase = roundState.phrasesForRound[roundState.currentPhraseIndex];
+  const teamConfig = getTeamConfig(currentTeam.color);
   
   return (
-    <View style={styles.container}>
-      {/* En-tête du jeu */}
-      <View style={styles.header}>
-        <View style={styles.roundInfo}>
-          <Text style={styles.roundText}>Manche {currentRound}</Text>
-          <Text style={styles.timeText}>{formatTime(roundState.timeLeft)}</Text>
-        </View>
-        
-        <View style={styles.teamInfo}>
-          <View style={[styles.teamColorBadge, { backgroundColor: currentTeam.color }]} />
-          <Text style={styles.teamText}>Équipe {getTeamName(currentTeam.color)}</Text>
-        </View>
-      </View>
-      
-      {/* Contenu principal */}
+    <ImageBackground source={images.gradientBackground} style={styles.container}>
       <View style={styles.content}>
-        {!gameState.gameStarted ? (
-          <Card style={styles.instructionCard}>
-            <Card.Content>
-              <Title style={styles.instructionTitle}>Prêt à commencer la partie ?</Title>
-              <Text style={styles.instructionText}>
-                Appuyez sur "Commencer" lorsque tous les joueurs sont prêts.
-              </Text>
-            </Card.Content>
-            <Card.Actions style={styles.cardActions}>
-              <Button 
-                mode="contained" 
-                onPress={startGame}
-                style={styles.startButton}
-              >
-                Commencer
-              </Button>
-            </Card.Actions>
-          </Card>
-        ) : showTeamPreparationScreen ? (
-          <Card style={styles.instructionCard}>
-            <Card.Content>
-              <View style={[styles.teamColorIndicator, { backgroundColor: currentTeam.color }]} />
-              <Title style={styles.instructionTitle}>
-                Équipe {getTeamName(currentTeam.color)}
-              </Title>
-              <Text style={styles.preparationText}>
-                Manche {currentRound} - {
-                  currentRound === RoundNumber.DESCRIPTION ? "Description" :
-                  currentRound === RoundNumber.ONE_WORD ? "Un seul mot" : "Mime"
-                }
-              </Text>
-              <Text style={styles.preparationText}>
-                Durée: {Math.floor(roundState.timeLeft / 60)} minute{roundState.timeLeft >= 120 ? 's' : ''} {roundState.timeLeft % 60} seconde{roundState.timeLeft % 60 > 1 ? 's' : ''}
-              </Text>
-            </Card.Content>
-            <Card.Actions style={styles.cardActions}>
-              <Button 
-                mode="contained" 
-                onPress={resumeGame}
-                style={styles.startButton}
-              >
-                Démarrer le Tour
-              </Button>
-            </Card.Actions>
-          </Card>
-        ) : currentPhrase ? (
-          <Card style={styles.phraseCard}>
-            <Card.Content>
-              <Text style={styles.phraseLabelText}>Phrase à faire deviner :</Text>
-              <Text style={styles.phraseText}>{currentPhrase.text}</Text>
-            </Card.Content>
-            <Card.Actions style={styles.cardActions}>
-              <Button 
-                mode="contained" 
-                onPress={markPhraseAsFound}
-                style={styles.foundButton}
-                disabled={!roundState.roundActive}
-              >
-                Trouvé
-              </Button>
-              <Button 
-                mode="outlined" 
-                onPress={markPhraseAsSkipped}
-                style={styles.skipButton}
-                disabled={!roundState.roundActive}
-              >
-                Passer
-              </Button>
-              </Card.Actions>
-          </Card>
-        ) : (
-          <Card style={styles.phraseCard}>
-            <Card.Content>
-              <Text style={styles.phraseLabelText}>Aucune phrase disponible</Text>
-              <Text style={styles.instructionText}>
-                Toutes les phrases ont été devinées ou passées pour cette manche.
-              </Text>
-            </Card.Content>
-          </Card>
-        )}
-      </View>
-      
-      {/* Actions de jeu */}
-      <View style={styles.actions}>
-        <Button 
-          mode="outlined" 
-          onPress={() => setScoreVisible(true)}
-          style={styles.actionButton}
-        >
-          Scores
-        </Button>
+        {/* Header permanent avec info équipe et manche */}
+        <View style={[styles.headerCard, { backgroundColor: currentTeam.color }]}>
+          <View style={styles.teamSection}>
+            {teamConfig.icon && (
+              <Image source={teamConfig.icon} style={styles.teamIcon} resizeMode="contain" />
+            )}
+            <View style={styles.teamInfo}>
+              <Text style={styles.teamTitle}>ÉQUIPE {teamConfig.name}</Text>
+              <Text style={styles.playerText}>{currentTeam.players[0]?.name}</Text>
+              <Text style={styles.playerText}>{currentTeam.players[1]?.name}</Text>
+            </View>
+          </View>
+          
+          <View style={styles.roundSection}>
+            <Text style={styles.roundNumber}>MANCHE {currentRound}</Text>
+            <Image source={ROUND_PICTOS[currentRound]} style={styles.roundIcon} resizeMode="contain" />
+            <Text style={styles.roundName}>{ROUND_NAMES[currentRound]}</Text>
+          </View>
+        </View>
         
-        {roundState.roundActive && (
-          <Button 
-            mode="outlined" 
-            onPress={endCurrentTurn}
-            style={[styles.actionButton, styles.endTurnButton]}
-          >
-            Terminer le tour
-          </Button>
-        )}
+        {/* Bouton Scores */}
+        <TouchableOpacity style={styles.scoresButton} onPress={() => setScoreVisible(true)}>
+          <Text style={styles.scoresButtonText}>SCORES</Text>
+        </TouchableOpacity>
+        
+        {/* Contenu principal selon l'état */}
+        <View style={styles.mainContent}>
+          {showTeamPreparationScreen ? (
+            // Écran de préparation
+            <View style={styles.preparationContainer}>
+              <Text style={styles.preparationTitle}>MANCHE {currentRound}</Text>
+              <Text style={styles.preparationSubtitle}>ÉQUIPE {teamConfig.name}</Text>
+              <Text style={styles.preparationPlayers}>
+                {currentTeam.players.map(p => p.name).join(' & ')}
+              </Text>
+              
+              <Text style={styles.preparationDescription}>
+                {ROUND_INSTRUCTIONS[currentRound]}
+              </Text>
+              
+              <Text style={styles.preparationTime}>
+                Temps disponible: {formatTime(roundState.timeLeft)}
+              </Text>
+              
+              <TouchableOpacity style={styles.startRoundButton} onPress={resumeGame}>
+                <Text style={styles.startRoundButtonText}>LANCER LA MANCHE</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            // Écran de jeu
+            <View style={styles.gameContainer}>
+              {/* Chrono circulaire */}
+              <View style={styles.timerContainer}>
+                <View style={styles.timerCircle}>
+                  <View 
+                    style={[
+                      styles.timerProgress, 
+                      { 
+                        backgroundColor: currentTeam.color,
+                        transform: [{ rotate: `${getTimePercentage() * 3.6}deg` }]
+                      }
+                    ]} 
+                  />
+                  <View style={styles.timerInner}>
+                    <Text style={styles.timerText}>{formatTime(roundState.timeLeft)}</Text>
+                  </View>
+                </View>
+              </View>
+              
+              {/* Mot à deviner */}
+              <View style={styles.wordContainer}>
+                <Text style={styles.wordLabel}>MOT À FAIRE DEVINER</Text>
+                <Text style={styles.wordText}>{currentPhrase?.text || 'Aucun mot'}</Text>
+              </View>
+              
+              {/* Boutons d'action */}
+              <View style={styles.actionsContainer}>
+                <TouchableOpacity 
+                  style={[styles.actionButton, styles.skipButton]}
+                  onPress={markPhraseAsSkipped}
+                  disabled={!roundState.roundActive}
+                >
+                  <Text style={styles.skipButtonText}>PASSER</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={[styles.actionButton, styles.foundButton]}
+                  onPress={markPhraseAsFound}
+                  disabled={!roundState.roundActive}
+                >
+                  <Text style={styles.foundButtonText}>TROUVÉ</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        </View>
       </View>
-      
-      {/* FAB pour les instructions */}
-      <FAB
-        style={styles.fab}
-        icon="help"
-        onPress={() => setInstructionsVisible(true)}
-      />
-      
-      {/* Dialogue d'instructions */}
-      <Portal>
-        <Dialog visible={instructionsVisible} onDismiss={() => setInstructionsVisible(false)}>
-          <Dialog.Title>Instructions</Dialog.Title>
-          <Dialog.Content>
-            <Text style={styles.dialogText}>
-              {ROUND_INSTRUCTIONS[currentRound]}
-            </Text>
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setInstructionsVisible(false)}>OK</Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
       
       {/* Dialogue des scores */}
       <Portal>
-        <Dialog visible={scoreVisible} onDismiss={() => setScoreVisible(false)}>
-          <Dialog.Title>Scores</Dialog.Title>
+        <Dialog visible={scoreVisible} onDismiss={() => setScoreVisible(false)} style={styles.scoreDialog}>
           <Dialog.Content>
             {renderScores()}
           </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setScoreVisible(false)}>Fermer</Button>
+          <Dialog.Actions style={styles.scoreDialogActions}>
+            <Button 
+              onPress={() => setScoreVisible(false)}
+              textColor={colors.white}
+              labelStyle={styles.scoreDialogButton}
+            >
+              Fermer
+            </Button>
             {gameState.gameFinished && (
-              <Button onPress={quitGame}>Terminer la partie</Button>
+              <Button 
+                onPress={quitGame}
+                mode="contained"
+                buttonColor={colors.accent}
+                textColor={colors.black}
+                labelStyle={styles.scoreDialogButton}
+              >
+                Terminer la partie
+              </Button>
             )}
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
-      
-      {/* Dialogue de confirmation de fin de tour */}
-      <Portal>
-        <Dialog visible={confirmEndTurnVisible} onDismiss={() => setConfirmEndTurnVisible(false)}>
-          <Dialog.Title>Terminer le tour</Dialog.Title>
-          <Dialog.Content>
-            <Text style={styles.dialogText}>
-              Êtes-vous sûr de vouloir terminer le tour de l'équipe {getTeamName(currentTeam.color)} ?
-            </Text>
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setConfirmEndTurnVisible(false)}>Annuler</Button>
-            <Button onPress={nextTeamTurn}>Terminer</Button>
           </Dialog.Actions>
         </Dialog>
       </Portal>
       
       {/* Dialogue de confirmation de fin de partie */}
       <Portal>
-        <Dialog visible={confirmEndGameVisible} onDismiss={() => setConfirmEndGameVisible(false)}>
-          <Dialog.Title>Quitter la partie</Dialog.Title>
+        <Dialog visible={confirmEndGameVisible} onDismiss={() => setConfirmEndGameVisible(false)} style={styles.scoreDialog}>
+          <Dialog.Title style={styles.dialogTitle}>Quitter la partie</Dialog.Title>
           <Dialog.Content>
             <Text style={styles.dialogText}>
               Êtes-vous sûr de vouloir quitter la partie ? Tout progrès sera perdu.
             </Text>
           </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setConfirmEndGameVisible(false)}>Annuler</Button>
-            <Button onPress={quitGame}>Quitter</Button>
+          <Dialog.Actions style={styles.scoreDialogActions}>
+            <Button 
+              onPress={() => setConfirmEndGameVisible(false)}
+              textColor={colors.white}
+              labelStyle={styles.scoreDialogButton}
+            >
+              Annuler
+            </Button>
+            <Button 
+              onPress={quitGame}
+              mode="contained"
+              buttonColor={colors.teams.rouge.main}
+              textColor={colors.white}
+              labelStyle={styles.scoreDialogButton}
+            >
+              Quitter
+            </Button>
           </Dialog.Actions>
         </Dialog>
       </Portal>
-    </View>
+    </ImageBackground>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: colors.background.primary,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  header: {
-    backgroundColor: '#3f51b5',
-    padding: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  roundInfo: {
-    flexDirection: 'column',
-  },
-  roundText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  timeText: {
-    color: 'white',
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  teamInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  teamColorBadge: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    marginRight: 8,
-  },
-  teamText: {
-    color: 'white',
-    fontSize: 16,
+  loadingText: {
+    color: colors.white,
+    fontSize: typography.fontSize.large,
+    fontFamily: typography.fontFamily.medium,
   },
   content: {
     flex: 1,
-    padding: 16,
-    justifyContent: 'center',
   },
-  phraseCard: {
-    padding: 16,
-    elevation: 4,
-  },
-  instructionCard: {
-    padding: 16,
-    elevation: 4,
-  },
-  phraseLabelText: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 8,
-  },
-  phraseText: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginVertical: 24,
-  },
-  instructionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  instructionText: {
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  preparationText: {
-    fontSize: 18,
-    textAlign: 'center',
-    marginVertical: 8,
-  },
-  teamColorIndicator: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    alignSelf: 'center',
-    marginBottom: 16,
-  },
-  cardActions: {
-    justifyContent: 'space-evenly',
-    marginTop: 16,
-  },
-  foundButton: {
-    backgroundColor: '#4CAF50',
-    paddingHorizontal: 24,
-  },
-  skipButton: {
-    borderColor: '#FF5722',
-    paddingHorizontal: 24,
-  },
-  startButton: {
-    backgroundColor: '#3f51b5',
-  },
-  actions: {
+  
+  // Header permanent
+  headerCard: {
     flexDirection: 'row',
+    padding: spacing.lg,
+    borderBottomWidth: 3,
+    borderBottomColor: colors.white,
+    marginBottom: spacing.lg,
+  },
+  teamSection: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  teamIcon: {
+    width: 40,
+    height: 40,
+    marginRight: spacing.md,
+  },
+  teamInfo: {
+    flex: 1,
+  },
+  teamTitle: {
+    fontSize: typography.fontSize.large,
+    fontFamily: typography.fontFamily.bold,
+    color: colors.white,
+    marginBottom: spacing.xs,
+  },
+  playerText: {
+    fontSize: typography.fontSize.medium,
+    fontFamily: typography.fontFamily.medium,
+    color: colors.white,
+  },
+  roundSection: {
+    alignItems: 'center',
     justifyContent: 'center',
-    padding: 16,
-    backgroundColor: '#f0f0f0',
+    paddingLeft: spacing.md,
+  },
+  roundNumber: {
+    fontSize: typography.fontSize.large,
+    fontFamily: typography.fontFamily.bold,
+    color: colors.white,
+    marginBottom: spacing.xs,
+  },
+  roundIcon: {
+    width: 32,
+    height: 32,
+    marginBottom: spacing.xs,
+  },
+  roundName: {
+    fontSize: typography.fontSize.small,
+    fontFamily: typography.fontFamily.semiBold,
+    color: colors.white,
+    textAlign: 'center',
+  },
+  
+  // Bouton Scores
+  scoresButton: {
+    backgroundColor: colors.accent,
+    borderRadius: borderRadius.medium,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    alignSelf: 'center',
+    marginBottom: spacing.xl,
+    marginHorizontal: spacing.lg,
+    borderWidth: 3,
+    borderColor: colors.white,
+    ...shadows.medium,
+  },
+  scoresButtonText: {
+    fontSize: typography.fontSize.large,
+    fontFamily: typography.fontFamily.bold,
+    color: colors.black,
+  },
+  
+  // Contenu principal
+  mainContent: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  
+  // Écran de préparation
+  preparationContainer: {
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  preparationTitle: {
+    fontSize: typography.fontSize.xxxlarge,
+    fontFamily: typography.fontFamily.bold,
+    color: colors.white,
+    marginBottom: spacing.sm,
+  },
+  preparationSubtitle: {
+    fontSize: typography.fontSize.xxlarge,
+    fontFamily: typography.fontFamily.bold,
+    color: colors.white,
+    marginBottom: spacing.xs,
+  },
+  preparationPlayers: {
+    fontSize: typography.fontSize.large,
+    fontFamily: typography.fontFamily.medium,
+    color: colors.white,
+    marginBottom: spacing.xl,
+  },
+  preparationDescription: {
+    fontSize: typography.fontSize.medium,
+    fontFamily: typography.fontFamily.medium,
+    color: colors.white,
+    textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: spacing.xl,
+    paddingHorizontal: spacing.md,
+  },
+  preparationTime: {
+    fontSize: typography.fontSize.large,
+    fontFamily: typography.fontFamily.semiBold,
+    color: colors.accent,
+    marginBottom: spacing.xxl,
+  },
+  startRoundButton: {
+    backgroundColor: colors.accent,
+    borderRadius: borderRadius.medium,
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.xxl,
+    borderWidth: 3,
+    borderColor: colors.white,
+    ...shadows.medium,
+  },
+  startRoundButtonText: {
+    fontSize: typography.fontSize.large,
+    fontFamily: typography.fontFamily.bold,
+    color: colors.black,
+  },
+  
+  // Écran de jeu
+  gameContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.xl,
+  },
+  
+  // Timer circulaire
+  timerContainer: {
+    alignItems: 'center',
+    marginTop: spacing.xl,
+  },
+  timerCircle: {
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: colors.background.secondary,
+    borderWidth: 6,
+    borderColor: colors.white,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  timerProgress: {
+    position: 'absolute',
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    opacity: 0.7,
+    transformOrigin: 'center',
+  },
+  timerInner: {
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    backgroundColor: colors.background.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 2,
+  },
+  timerText: {
+    fontSize: typography.fontSize.xxxlarge,
+    fontFamily: typography.fontFamily.bold,
+    color: colors.white,
+  },
+  
+  // Mot à deviner
+  wordContainer: {
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    flex: 1,
+    justifyContent: 'center',
+  },
+  wordLabel: {
+    fontSize: typography.fontSize.medium,
+    fontFamily: typography.fontFamily.semiBold,
+    color: colors.white,
+    marginBottom: spacing.md,
+    textAlign: 'center',
+  },
+  wordText: {
+    fontSize: typography.fontSize.xxxlarge,
+    fontFamily: typography.fontFamily.bold,
+    color: colors.white,
+    textAlign: 'center',
+    lineHeight: 40,
+  },
+  
+  // Boutons d'action
+  actionsContainer: {
+    flexDirection: 'row',
+    width: '100%',
+    paddingHorizontal: spacing.lg,
+    gap: spacing.md,
   },
   actionButton: {
-    marginHorizontal: 8,
+    flex: 1,
+    paddingVertical: spacing.xl,
+    borderRadius: borderRadius.medium,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 3,
+    borderColor: colors.white,
+    ...shadows.medium,
   },
-  endTurnButton: {
-    borderColor: '#F44336',
+  skipButton: {
+    backgroundColor: colors.white,
   },
-  fab: {
-    position: 'absolute',
-    right: 16,
-    bottom: 80,
-    backgroundColor: '#3f51b5',
+  skipButtonText: {
+    fontSize: typography.fontSize.large,
+    fontFamily: typography.fontFamily.bold,
+    color: colors.background.primary,
   },
-  dialogText: {
-    fontSize: 16,
-    lineHeight: 24,
+  foundButton: {
+    backgroundColor: colors.accent,
+  },
+  foundButtonText: {
+    fontSize: typography.fontSize.large,
+    fontFamily: typography.fontFamily.bold,
+    color: colors.black,
+  },
+  
+  // Dialogues
+  scoreDialog: {
+    backgroundColor: colors.background.primary,
+    borderRadius: borderRadius.medium,
+    borderWidth: 2,
+    borderColor: colors.accent,
   },
   scoresContainer: {
-    padding: 8,
+    padding: spacing.md,
   },
   scoresTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 16,
+    fontSize: typography.fontSize.xxlarge,
+    fontFamily: typography.fontFamily.bold,
+    color: colors.accent,
     textAlign: 'center',
+    marginBottom: spacing.lg,
   },
   scoreRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
-    paddingVertical: 8,
+    marginBottom: spacing.md,
+    paddingVertical: spacing.sm,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    borderBottomColor: colors.white,
   },
   teamColorDot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    marginRight: 8,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    marginRight: spacing.md,
+    borderWidth: 2,
+    borderColor: colors.white,
   },
-  teamName: {
+  scoreTeamName: {
     flex: 1,
-    fontSize: 16,
+    fontSize: typography.fontSize.large,
+    fontFamily: typography.fontFamily.semiBold,
+    color: colors.white,
   },
   scoreValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginLeft: 8,
+    fontSize: typography.fontSize.xxlarge,
+    fontFamily: typography.fontFamily.bold,
+    color: colors.accent,
+    marginLeft: spacing.md,
+  },
+  scoreDialogActions: {
+    justifyContent: 'space-around',
+    paddingHorizontal: spacing.lg,
+  },
+  scoreDialogButton: {
+    fontSize: typography.fontSize.medium,
+    fontFamily: typography.fontFamily.semiBold,
+  },
+  dialogTitle: {
+    color: colors.white,
+    fontFamily: typography.fontFamily.bold,
+    textAlign: 'center',
+  },
+  dialogText: {
+    fontSize: typography.fontSize.medium,
+    color: colors.white,
+    textAlign: 'center',
+    lineHeight: 24,
   },
 });
 

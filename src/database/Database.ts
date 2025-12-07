@@ -47,30 +47,106 @@ const getDatabase = async (): Promise<SQLite.SQLiteDatabase> => {
   return dbInstance;
 };
 
-// Suppresion de la base de donnée actuelle
-const resetDatabase = async (): Promise<void> => {
+
+// Fermer la base de données
+const closeDatabase = async (): Promise<void> => {
   try {
-    // Fermer la connexion à la base de données si elle est ouverte
     if (dbInstance) {
       await dbInstance.closeAsync();
       dbInstance = null;
+      console.log("Base de données fermée avec succès");
     }
-
-    // Supprimer la base de données
-    await SQLite.deleteDatabaseAsync("timesup.db");
-    console.log("Base de données supprimée avec succès");
-
-    // Réinitialiser la base de données
-    await initDatabase();
-    console.log("Base de données réinitialisée avec succès");
   } catch (error) {
-    console.error(
-      "Erreur lors de la réinitialisation de la base de données",
-      error
-    );
-    throw error;
+    console.error("Erreur lors de la fermeture de la base de données", error);
+    // Forcer la fermeture en cas d'erreur
+    dbInstance = null;
   }
 };
+
+// Fonction améliorée pour supprimer la base de données
+const resetDatabase = async (): Promise<void> => {
+  try {
+    console.log("🔄 Début de la réinitialisation de la base de données...");
+    
+    // Étape 1: Forcer la fermeture de toutes les connexions
+    if (dbInstance) {
+      try {
+        console.log("🔒 Fermeture de la connexion principale...");
+        await dbInstance.closeAsync();
+        console.log("✅ Connexion principale fermée");
+      } catch (closeError) {
+        console.warn("⚠️ Erreur lors de la fermeture (ignorée):", closeError);
+      }
+      dbInstance = null;
+    }
+
+    // Étape 2: Attendre pour s'assurer que toutes les opérations sont terminées
+    console.log("⏳ Attente de la libération des ressources...");
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Étape 3: Forcer le garbage collection si possible
+    if (global.gc) {
+      global.gc();
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    // Étape 4: Tentative de suppression
+    console.log("🗑️ Tentative de suppression de la base de données...");
+    try {
+      await SQLite.deleteDatabaseAsync("timesup.db");
+      console.log("✅ Base de données supprimée avec succès");
+    } catch (deleteError) {
+      console.error("❌ Erreur lors de la suppression:", deleteError);
+      
+      // Si la suppression échoue, essayer une approche alternative
+      console.log("🔄 Tentative d'approche alternative...");
+      
+      // Forcer la nullification de l'instance
+      dbInstance = null;
+      
+      // Attendre plus longtemps
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Deuxième tentative
+      try {
+        await SQLite.deleteDatabaseAsync("timesup.db");
+        console.log("✅ Base de données supprimée avec succès (2ème tentative)");
+      } catch (secondError) {
+        console.error("❌ Impossible de supprimer la base de données:", secondError);
+        throw new Error("La base de données ne peut pas être supprimée. Veuillez redémarrer l'application.");
+      }
+    }
+
+    // Étape 5: Attendre avant de réinitialiser
+    console.log("⏳ Attente avant réinitialisation...");
+    await new Promise(resolve => setTimeout(resolve, 200));
+
+    // Étape 6: Réinitialiser la base de données
+    console.log("🚀 Réinitialisation de la base de données...");
+    await initDatabase();
+    console.log("✅ Base de données réinitialisée avec succès");
+    
+  } catch (error) {
+    console.error("❌ Erreur lors de la réinitialisation de la base de données:", error);
+    
+    // En cas d'erreur, essayer de forcer la réinitialisation
+    try {
+      console.log("🔄 Tentative de récupération...");
+      dbInstance = null;
+      
+      // Attendre encore plus longtemps
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      await initDatabase();
+      console.log("✅ Base de données récupérée avec succès");
+    } catch (retryError) {
+      console.error("❌ Impossible de récupérer la base de données:", retryError);
+      throw new Error("Erreur critique: Veuillez redémarrer l'application pour continuer.");
+    }
+  }
+};
+
+
 
 // Initialisation de la base de données
 const initDatabase = async (): Promise<void> => {
@@ -753,9 +829,311 @@ const updatePhrase = async (phrase: Phrase): Promise<void> => {
   }
 };
 
+// Nouvelle fonction pour obtenir des phrases uniques réparties entre équipes
+const getUniquePhrasesByTeams = async (
+  categoryIds: number[], 
+  phrasesPerTeam: number, 
+  teamCount: number
+): Promise<Phrase[]> => {
+  try {
+    if (categoryIds.length === 0) {
+      return [];
+    }
+    
+    const db = await getDatabase();
+    
+    // Construire une requête avec des placeholders pour les IDs de catégorie
+    const placeholders = categoryIds.map(() => '?').join(',');
+    
+    // Récupérer toutes les phrases des catégories sélectionnées
+    const allPhrases = await db.getAllAsync<Phrase>(
+      `SELECT * FROM phrases WHERE categoryId IN (${placeholders}) ORDER BY RANDOM()`,
+      [...categoryIds]
+    );
+    
+    // Calculer le nombre total de phrases nécessaires
+    const totalNeeded = phrasesPerTeam * teamCount;
+    
+    // Vérifier qu'on a assez de phrases
+    if (allPhrases.length < totalNeeded) {
+      console.warn(`⚠️ Pas assez de phrases disponibles! Demandé: ${totalNeeded}, Disponible: ${allPhrases.length}`);
+      return allPhrases; // Retourner toutes les phrases disponibles
+    }
+    
+    // Retourner les N premières phrases (déjà mélangées par ORDER BY RANDOM())
+    const selectedPhrases = allPhrases.slice(0, totalNeeded);
+    
+    console.log(`✅ ${selectedPhrases.length} phrases uniques sélectionnées pour ${teamCount} équipes`);
+    return selectedPhrases;
+  } catch (error) {
+    console.error('Erreur lors de la récupération des phrases uniques par équipes', error);
+    throw error;
+  }
+};
+
+// Interface pour une phrase de partie temporaire
+interface TempGamePhrase {
+  id?: number;
+  phraseId: number;
+  text: string;
+  status: 'pending' | 'found' | 'skipped';
+}
+
+// Créer les tables temporaires pour une partie
+const createGameTables = async (teams: { id: number, color: string }[]): Promise<void> => {
+  try {
+    const db = await getDatabase();
+    
+    // Supprimer les anciennes tables de partie si elles existent
+    await clearGameTables();
+    
+    // Créer une table pour chaque équipe
+    for (const team of teams) {
+      const tableName = getTeamTableName(team.color);
+      
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS ${tableName} (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          phraseId INTEGER NOT NULL,
+          text TEXT NOT NULL,
+          status TEXT DEFAULT 'pending'
+        );
+      `);
+      
+      console.log(`✅ Table ${tableName} créée`);
+    }
+  } catch (error) {
+    console.error('Erreur lors de la création des tables de jeu', error);
+    throw error;
+  }
+};
+
+// Obtenir le nom de table pour une couleur d'équipe
+const getTeamTableName = (color: string): string => {
+  const colorMap: { [key: string]: string } = {
+    '#03B0AE': 'cyan_partie_en_cours',
+    '#4D2BAD': 'violet_partie_en_cours', 
+    '#BE2045': 'rouge_partie_en_cours',
+    '#ABD926': 'vert_partie_en_cours'
+  };
+  return colorMap[color] || 'equipe_inconnue_partie_en_cours';
+};
+
+// Peupler les tables d'équipe avec les phrases
+const populateTeamTables = async (
+  teams: { id: number, color: string }[],
+  categoryIds: number[],
+  phrasesPerTeam: number
+): Promise<void> => {
+  try {
+    const db = await getDatabase();
+    
+    // Récupérer toutes les phrases disponibles des catégories sélectionnées
+    const placeholders = categoryIds.map(() => '?').join(',');
+    const allPhrases = await db.getAllAsync<Phrase>(
+      `SELECT * FROM phrases WHERE categoryId IN (${placeholders}) ORDER BY RANDOM()`,
+      [...categoryIds]
+    );
+    
+    const totalNeeded = phrasesPerTeam * teams.length;
+    if (allPhrases.length < totalNeeded) {
+      console.warn(`⚠️ Pas assez de phrases! Demandé: ${totalNeeded}, Disponible: ${allPhrases.length}`);
+    }
+    
+    // Répartir les phrases entre les équipes
+    for (let teamIndex = 0; teamIndex < teams.length; teamIndex++) {
+      const team = teams[teamIndex];
+      const tableName = getTeamTableName(team.color);
+      
+      console.log(`🎯 Peuplement de ${tableName}:`);
+      
+      // Calculer les indices pour cette équipe
+      const startIndex = teamIndex * phrasesPerTeam;
+      const endIndex = Math.min(startIndex + phrasesPerTeam, allPhrases.length);
+      
+      // Insérer les phrases dans la table de l'équipe
+      for (let i = startIndex; i < endIndex; i++) {
+        const phrase = allPhrases[i];
+        
+        await db.runAsync(
+          `INSERT INTO ${tableName} (phraseId, text, status) VALUES (?, ?, ?)`,
+          [phrase.id!, phrase.text, 'pending']
+        );
+        
+        console.log(`  ${i - startIndex + 1}. "${phrase.text}" (ID: ${phrase.id})`);
+      }
+      
+      console.log(`✅ ${endIndex - startIndex} phrases ajoutées à ${tableName}`);
+    }
+  } catch (error) {
+    console.error('Erreur lors du peuplement des tables d\'équipe', error);
+    throw error;
+  }
+};
+
+// Récupérer les phrases d'une équipe pour le jeu
+const getTeamGamePhrases = async (teamColor: string): Promise<TempGamePhrase[]> => {
+  try {
+    const db = await getDatabase();
+    const tableName = getTeamTableName(teamColor);
+    
+    const phrases = await db.getAllAsync<TempGamePhrase>(
+      `SELECT * FROM ${tableName} ORDER BY RANDOM()`
+    );
+    
+    return phrases;
+  } catch (error) {
+    console.error(`Erreur lors de la récupération des phrases pour l'équipe ${teamColor}`, error);
+    throw error;
+  }
+};
+
+// Récupérer une phrase spécifique d'une équipe
+const getTeamPhrase = async (teamColor: string, phraseId: number): Promise<TempGamePhrase | null> => {
+  try {
+    const db = await getDatabase();
+    const tableName = getTeamTableName(teamColor);
+    
+    const phrase = await db.getFirstAsync<TempGamePhrase>(
+      `SELECT * FROM ${tableName} WHERE id = ?`,
+      [phraseId]
+    );
+    
+    return phrase || null;
+  } catch (error) {
+    console.error(`Erreur lors de la récupération de la phrase ${phraseId} pour l'équipe ${teamColor}`, error);
+    throw error;
+  }
+};
+
+// Marquer une phrase comme trouvée/passée
+const updateTeamPhraseStatus = async (
+  teamColor: string, 
+  phraseId: number, 
+  status: 'found' | 'skipped'
+): Promise<void> => {
+  try {
+    const db = await getDatabase();
+    const tableName = getTeamTableName(teamColor);
+    
+    await db.runAsync(
+      `UPDATE ${tableName} SET status = ? WHERE id = ?`,
+      [status, phraseId]
+    );
+    
+    console.log(`✅ Phrase ${phraseId} marquée comme ${status} dans ${tableName}`);
+  } catch (error) {
+    console.error(`Erreur lors de la mise à jour du statut de la phrase ${phraseId}`, error);
+    throw error;
+  }
+};
+
+// Compter les phrases restantes pour une équipe
+const countPendingPhrasesForTeam = async (teamColor: string): Promise<number> => {
+  try {
+    const db = await getDatabase();
+    const tableName = getTeamTableName(teamColor);
+    
+    const result = await db.getFirstAsync<{ count: number }>(
+      `SELECT COUNT(*) as count FROM ${tableName} WHERE status = 'pending'`
+    );
+    
+    return result?.count || 0;
+  } catch (error) {
+    console.error(`Erreur lors du comptage des phrases restantes pour l'équipe ${teamColor}`, error);
+    throw error;
+  }
+};
+
+// Compter le total de phrases restantes pour toutes les équipes
+const countTotalPendingPhrases = async (teams: { color: string }[]): Promise<number> => {
+  try {
+    let total = 0;
+    
+    for (const team of teams) {
+      const count = await countPendingPhrasesForTeam(team.color);
+      total += count;
+    }
+    
+    return total;
+  } catch (error) {
+    console.error('Erreur lors du comptage total des phrases restantes', error);
+    throw error;
+  }
+};
+
+// Récupérer la prochaine phrase disponible (toutes équipes confondues)
+const getNextAvailablePhrase = async (teams: { color: string }[]): Promise<{ phrase: TempGamePhrase, teamColor: string } | null> => {
+  try {
+    // Chercher dans chaque équipe une phrase en attente
+    for (const team of teams) {
+      const phrases = await getTeamGamePhrases(team.color);
+      const pendingPhrase = phrases.find(p => p.status === 'pending');
+      
+      if (pendingPhrase) {
+        return {
+          phrase: pendingPhrase,
+          teamColor: team.color
+        };
+      }
+    }
+    
+    return null; // Aucune phrase disponible
+  } catch (error) {
+    console.error('Erreur lors de la recherche de la prochaine phrase', error);
+    throw error;
+  }
+};
+
+// Nettoyer les tables de partie
+const clearGameTables = async (): Promise<void> => {
+  try {
+    const db = await getDatabase();
+    
+    const tableNames = [
+      'cyan_partie_en_cours',
+      'violet_partie_en_cours', 
+      'rouge_partie_en_cours',
+      'vert_partie_en_cours'
+    ];
+    
+    for (const tableName of tableNames) {
+      try {
+        await db.execAsync(`DROP TABLE IF EXISTS ${tableName}`);
+        console.log(`🗑️ Table ${tableName} supprimée`);
+      } catch (error) {
+        // Ignore les erreurs si la table n'existe pas
+      }
+    }
+  } catch (error) {
+    console.error('Erreur lors du nettoyage des tables de jeu', error);
+  }
+};
+
+// Réinitialiser les statuts pour une nouvelle manche
+const resetTeamPhrasesStatus = async (teams: { color: string }[]): Promise<void> => {
+  try {
+    const db = await getDatabase();
+    
+    for (const team of teams) {
+      const tableName = getTeamTableName(team.color);
+      
+      await db.runAsync(
+        `UPDATE ${tableName} SET status = 'pending' WHERE status IN ('found', 'skipped')`
+      );
+      
+      console.log(`🔄 Statuts réinitialisés pour ${tableName}`);
+    }
+  } catch (error) {
+    console.error('Erreur lors de la réinitialisation des statuts', error);
+    throw error;
+  }
+};
+
 export default {
   initDatabase,
   resetDatabase,
+  closeDatabase,
 
   // Joueurs
   addPlayer,
@@ -792,4 +1170,17 @@ export default {
   getRandomPhrases,
   deletePhrase,
   updatePhrase,
+  getUniquePhrasesByTeams,
+
+  // Nouvelles fonctions pour les parties
+  createGameTables,
+  populateTeamTables,
+  getTeamGamePhrases,
+  getTeamPhrase,
+  updateTeamPhraseStatus,
+  countPendingPhrasesForTeam,
+  countTotalPendingPhrases,
+  getNextAvailablePhrase,
+  clearGameTables,
+  resetTeamPhrasesStatus,
 };

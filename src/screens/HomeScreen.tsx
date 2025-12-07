@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, StyleSheet, ImageBackground, Image, Dimensions, Alert } from 'react-native';
 import { Button, Title, Text } from 'react-native-paper';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -17,6 +17,69 @@ type Props = {
 
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const assetsLoaded = useAssets();
+  const [isLoading, setIsLoading] = useState(false);
+  
+  // Fonction de reset améliorée
+  const handleResetDatabase = async () => {
+    Alert.alert(
+      "⚠️ Réinitialiser la base de données",
+      "Cette action va :\n\n• Supprimer toutes les équipes\n• Supprimer tous les joueurs\n• Arrêter toute partie en cours\n• Remettre les données par défaut\n\nCette action est irréversible !",
+      [
+        {
+          text: "Annuler",
+          style: "cancel"
+        },
+        {
+          text: "Réinitialiser",
+          style: "destructive",
+          onPress: async () => {
+            setIsLoading(true);
+            
+            try {
+              console.log("🔄 Début de la réinitialisation depuis HomeScreen...");
+              
+              // Forcer la fermeture de toutes les connexions possibles
+              await Database.closeDatabase();
+              
+              // Attendre un peu plus pour s'assurer que tout est fermé
+              await new Promise(resolve => setTimeout(resolve, 300));
+              
+              // Réinitialiser la base de données
+              await Database.resetDatabase();
+              
+              Alert.alert(
+                "✅ Succès", 
+                "La base de données a été réinitialisée avec succès !",
+                [
+                  {
+                    text: "OK",
+                    onPress: () => {
+                      console.log("✅ Réinitialisation terminée");
+                    }
+                  }
+                ]
+              );
+              
+            } catch (error) {
+              console.error("❌ Erreur lors du reset:", error);
+              
+              Alert.alert(
+                "❌ Erreur",
+                error instanceof Error ? error.message : "Une erreur est survenue lors de la réinitialisation.\n\nVeuillez redémarrer l'application.",
+                [
+                  {
+                    text: "OK"
+                  }
+                ]
+              );
+            } finally {
+              setIsLoading(false);
+            }
+          }
+        }
+      ]
+    );
+  };
   
   if (!assetsLoaded) {
     return (
@@ -51,6 +114,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
             onPress={() => {
               navigation.navigate('GameConfig');
             }}
+            disabled={isLoading}
           >
             NOUVELLE PARTIE
           </Button>
@@ -62,6 +126,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
             onPress={() => {
               navigation.navigate('Players');
             }}
+            disabled={isLoading}
           >
             GESTION DES JOUEURS
           </Button>
@@ -71,19 +136,18 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
         <View style={styles.tempButtonContainer}>
           <Button 
             mode="outlined" 
-            style={styles.tempButton}
-            labelStyle={styles.tempButtonLabel}
-            onPress={async () => {
-              try {
-                await Database.resetDatabase();
-                Alert.alert('Succès', 'Base de données réinitialisée avec succès');
-              } catch (error) {
-                console.error('Erreur lors de la réinitialisation', error);
-                Alert.alert('Erreur', 'Erreur lors de la réinitialisation de la base de données');
-              }
-            }}
+            style={[
+              styles.tempButton,
+              isLoading && styles.tempButtonDisabled
+            ]}
+            labelStyle={[
+              styles.tempButtonLabel,
+              isLoading && styles.tempButtonLabelDisabled
+            ]}
+            onPress={handleResetDatabase}
+            disabled={isLoading}
           >
-            DEBUG: Reset BDD
+            {isLoading ? "🔄 RESET EN COURS..." : "DEBUG: Reset BDD"}
           </Button>
         </View>
       </View>
@@ -162,6 +226,13 @@ const styles = StyleSheet.create({
   tempButtonLabel: {
     fontSize: typography.fontSize.small,
     color: colors.accent,
+  },
+  tempButtonDisabled: {
+    borderColor: colors.white,
+    opacity: 0.7,
+  },
+  tempButtonLabelDisabled: {
+    color: colors.white,
   },
 });
 

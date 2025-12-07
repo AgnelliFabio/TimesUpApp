@@ -20,17 +20,26 @@ export enum PhraseStatus {
   SKIPPED = 'skipped'       // Passée
 }
 
-// Interface pour une phrase dans le jeu
-export interface GamePhrase extends Phrase {
-  status: PhraseStatus;     // Statut actuel de la phrase
-  teamId: number;           // ID de l'équipe à qui appartient cette phrase
+// Interface pour une phrase de partie temporaire (nouvelle)
+export interface TempGamePhrase {
+  id: number;               // ID dans la table temporaire
+  phraseId: number;         // ID de la phrase originale
+  text: string;             // Texte de la phrase
+  status: PhraseStatus;     // Statut actuel
 }
 
-// État d'une manche
+// Interface pour une phrase dans le jeu (modifiée)
+export interface GamePhrase {
+  id: number;               // ID dans la table temporaire
+  text: string;             // Texte de la phrase
+  status: PhraseStatus;     // Statut actuel
+  originalPhraseId: number; // ID de la phrase originale
+}
+
+// État d'une manche (simplifié)
 export interface RoundState {
   currentTeamIndex: number;          // Index de l'équipe active
-  currentPhraseIndex: number;        // Index de la phrase active
-  phrasesForRound: GamePhrase[];     // Phrases pour cette manche
+  currentPhrase: GamePhrase | null;  // Phrase actuelle (une seule à la fois)
   scores: Record<number, number>;    // Scores par équipe
   timeLeft: number;                  // Temps restant en secondes
   roundActive: boolean;              // Indique si le chronomètre tourne
@@ -43,13 +52,14 @@ export enum RoundNumber {
   MIME = 3          // Mime
 }
 
-// État global du jeu
+// État global du jeu (simplifié)
 export interface GameState {
   config: GameConfig;             // Configuration du jeu
   currentRound: RoundNumber;      // Manche actuelle (1, 2, 3)
   rounds: Record<RoundNumber, RoundState>;  // État de chaque manche
   gameStarted: boolean;           // Le jeu a-t-il commencé
   gameFinished: boolean;          // Le jeu est-il terminé
+  totalPhrasesRemaining: number;  // Phrases restantes (toutes équipes)
 }
 
 // Instructions pour chaque manche

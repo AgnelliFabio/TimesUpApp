@@ -22,12 +22,12 @@ export const images = {
     vert: require('../../assets/images/icon-vert.png'),
   },
   
-  // Pictos suivants (à décommenter plus tard)
-  // pictos: {
-  //   description: require('../../assets/images/Description-picto.png'),
-  //   oneWord: require('../../assets/images/1mot-picto.png'),
-  //   mime: require('../../assets/images/Mime-picto.png'),
-  // },
+  // Pictos suivants
+  pictos: {
+    description: require('../../assets/images/Description-picto.png'),
+    oneWord: require('../../assets/images/1mot-picto.png'),
+    mime: require('../../assets/images/Mime-picto.png'),
+  },
 };
 
 export const useAssets = () => {
